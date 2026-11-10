@@ -82,6 +82,7 @@ type Link struct {
 	sig       [manifest.SignatureMax]byte
 	digest    [32]byte
 	published bool
+	uploading bool
 	revision  uint64
 	nextPub   int64
 	frag      [packet.DatagramMax]byte
@@ -268,13 +269,11 @@ func (l *Link) poll() error {
 			return err
 		}
 	}
-	l.speaker.Poll(&l.pkt, now)
-	if !l.pkt.Empty() {
-		if err := l.sendBabel(); err != nil {
-			return err
-		}
+	if err := l.flushBabel(now); err != nil {
+		return err
 	}
-	// One DATA chunk per tick keeps Babel timely, as wg_poll does.
+	// A few DATA chunks per tick keep Babel timely, as wg_poll does.
+	l.uploading = l.uploading || l.gossip.Busy()
 	for range 4 {
 		if err := l.gossip.Poll(uint64(now), l.emit); err != nil {
 			return err
@@ -283,7 +282,24 @@ func (l *Link) poll() error {
 			break
 		}
 	}
+	// Lite rejects an Update before the manifest is accepted, engine.c, so
+	// announce again once the router has the manifest instead of in 16 s.
+	if l.uploading && !l.gossip.Busy() {
+		l.uploading = false
+		l.speaker.Announce()
+		if err := l.flushBabel(now); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (l *Link) flushBabel(now int64) error {
+	l.speaker.Poll(&l.pkt, now)
+	if l.pkt.Empty() {
+		return nil
+	}
+	return l.sendBabel()
 }
 
 func (l *Link) sendBabel() error {
