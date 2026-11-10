@@ -78,6 +78,15 @@ int main(void)
     n = wn_manifest_capabilities_write(self, &origin, 7, 1700000000000, 1700000900000, 43024,
                                        43025, "kitchen", true, (char *)buf, sizeof buf);
     out("manifest-body", buf, n);
+    static uint8_t body[WN_MANIFEST_BODY_MAX];
+    memcpy(body, buf, (size_t)n);
+    uint8_t signature[71];
+    for (unsigned i = 0; i < sizeof signature; i++)
+        signature[i] = (uint8_t)(0x30 + i);
+    char self_principal[106];
+    wn_principal(TENANT, SELF, self_principal);
+    out("manifest-wire", buf, wn_manifest_wire_write(self_principal, body, (size_t)n, signature,
+                                                     sizeof signature, (char *)buf, sizeof buf));
     n = wn_manifest_write(self, &origin, 1, 1700000000000, 1700000600000, 43024, (char *)buf,
                           sizeof buf);
     out("manifest-body-plain", buf, n);
