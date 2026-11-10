@@ -107,10 +107,16 @@ func TestSpeaker(t *testing.T) {
 		t.Fatal("link state")
 	}
 	s.Poll(&p, 100)
-	n := 0
-	Decode(p.Bytes(), func(m *Message) { n++; _ = m })
-	if n != 1 {
-		t.Fatalf("wildcard request answered with %d TLVs", n)
+	types = types[:0]
+	Decode(p.Bytes(), func(m *Message) {
+		types = append(types, m.Type)
+		if m.Type == TypeIHU && m.Metric != LANCost {
+			t.Error("IHU cost after hearing a Hello")
+		}
+	})
+	// The first Hello heard brings an IHU now, and the wildcard request an Update.
+	if !bytes.Equal(types, []byte{TypeIHU, TypeUpdate}) {
+		t.Fatalf("second poll %v", types)
 	}
 	// A seqno request for our prefix asks for a new manifest.
 	var sr Packet

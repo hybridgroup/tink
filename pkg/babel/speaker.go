@@ -49,6 +49,9 @@ func (s *Speaker) Receive(packet []byte, nowMS int64) error {
 	return Decode(packet, func(m *Message) {
 		switch m.Type {
 		case TypeHello:
+			if s.helloUntil <= nowMS {
+				s.nextIHU = 0 // Tell a newly heard neighbour its cost now, not at the next interval.
+			}
 			s.helloUntil = nowMS + int64(m.Interval)*10*holdNum/holdDen
 		case TypeIHU:
 			s.ihuUntil = nowMS + int64(m.Interval)*10*holdNum/holdDen
