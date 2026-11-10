@@ -5,19 +5,24 @@
 //
 // Put the device credentials from an enrolled device in creds/, see README.md, then
 //
-//	tinygo flash -target xiao-esp32s3 -ldflags="-X main.ssid=SSID -X main.password=PASS -X main.peer=192.168.1.20" -monitor ./examples/wendynet-wifi
+//	tinygo flash -target xiao-esp32s3 -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
+//
+// Without -X main.peer=<ip> it finds a router with mDNS.
 package main
 
 import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/binary"
+	"errors"
 	"net"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/hybridgroup/tink/pkg/addr"
 	"github.com/hybridgroup/tink/pkg/link"
+	"github.com/hybridgroup/tink/pkg/mdns"
 	"github.com/hybridgroup/tink/pkg/meshid"
 	"github.com/hybridgroup/tink/pkg/tls13"
 	lx509 "github.com/soypat/lcrypto/x509"
@@ -29,7 +34,7 @@ import (
 var (
 	ssid     string
 	password string
-	peer     string // Router IPv4 address.
+	peer     string // Router IPv4 address. Found with mDNS when empty.
 )
 
 var (
@@ -65,11 +70,6 @@ func main() {
 	println("time", time.Now().String())
 
 	check("credential", cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{deviceCert}, Key: deviceKey}))
-	check("verifier", verifier.Configure(meshid.Config{
-		Roots:    lx509.Chain{tenantRoot},
-		Nanotime: func() int64 { return time.Now().UnixNano() },
-		Tenant:   tenantID, Device: deviceID,
-	}))
 	check("tls config", conn.Configure(tls13.Config{
 		Rand:         rand.Reader,
 		Suites:       []tls13.Suite{tls13.AES128GCMSHA256()},
@@ -87,7 +87,27 @@ func main() {
 }
 
 func session(tenant, self addr.UUID) error {
-	tcp, err := net.Dial("tcp", peer+":43024")
+	target, pin := peer+":43024", ""
+	if peer == "" {
+		c, err := discover(tenant, self)
+		if err != nil {
+			return err
+		}
+		ip := c.IPv4
+		target = net.IP(ip[:]).String() + ":" + strconv.Itoa(int(c.Port))
+		pin = c.Device.String()
+		println("found router", pin, "at", target)
+	}
+	// mDNS is only a hint, so TLS must authenticate the device it named.
+	err := verifier.Configure(meshid.Config{
+		Roots:    lx509.Chain{tenantRoot},
+		Nanotime: func() int64 { return time.Now().UnixNano() },
+		Tenant:   tenant.String(), Device: self.String(), Peer: pin,
+	})
+	if err != nil {
+		return err
+	}
+	tcp, err := net.Dial("tcp", target)
 	if err != nil {
 		return err
 	}
@@ -117,6 +137,41 @@ func session(tenant, self addr.UUID) error {
 	go report(l)
 	return l.Run(&conn, nil)
 }
+
+var mdnsBuf [1500]byte
+
+// discover sends legacy unicast mDNS queries until a router of the tenant answers.
+func discover(tenant, self addr.UUID) (mdns.Candidate, error) {
+	conn, err := net.Dial("udp", "224.0.0.251:5353")
+	if err != nil {
+		return mdns.Candidate{}, err
+	}
+	defer conn.Close()
+	for id := uint16(1); id <= 5; id++ {
+		if _, err := conn.Write(mdns.WriteQuery(mdnsBuf[:], id)); err != nil {
+			return mdns.Candidate{}, err
+		}
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		for {
+			n, err := conn.Read(mdnsBuf[:])
+			if err != nil {
+				break
+			}
+			found, err := mdns.Parse(mdnsBuf[:n])
+			if err != nil {
+				continue
+			}
+			for i := range found {
+				if c, ok := found[i].Candidate(tenant, self); ok {
+					return c, nil
+				}
+			}
+		}
+	}
+	return mdns.Candidate{}, errNoRouter
+}
+
+var errNoRouter = errors.New("no router found with mDNS")
 
 func report(l *link.Link) {
 	for was := false; ; time.Sleep(time.Second) {
