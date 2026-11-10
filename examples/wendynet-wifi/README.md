@@ -1,6 +1,6 @@
 # wendynet-wifi
 
-Joins a Wendy Net mesh as a leaf over Wi-Fi by dialing one Lite router on TCP 43024.
+Joins a Wendy Net mesh as a leaf over Wi-Fi. It finds a Lite router with mDNS, or uses `-X main.peer=<ip>`, and dials it on TCP 43024.
 
 Put these DER files in `creds/`. They are not committed.
 
@@ -11,5 +11,7 @@ Put these DER files in `creds/`. They are not committed.
 The router must be enrolled on the P-256 chain, for example an `esp32c6_net` board, since lcrypto cannot verify ML-DSA yet.
 
 ```
-tinygo flash -target xiao-esp32s3 -ldflags="-X main.ssid=SSID -X main.password=PASS -X main.peer=192.168.1.20" -monitor ./examples/wendynet-wifi
+tinygo flash -target xiao-esp32s3 -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
 ```
+
+mDNS sends to 224.0.0.251, which needs lneto to map multicast addresses to their MAC. Until that is released, point a `go.work` at an lneto checkout with the `ipv4-multicast-mac` change, or pass `-X main.peer`.
