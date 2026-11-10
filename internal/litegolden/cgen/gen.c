@@ -1,6 +1,8 @@
 /* Prints golden vectors from the wendy-lite wire code as "name hex" lines. */
 #include "psa/crypto.h"
 #include "wendy_net_control.h"
+#include "certificate_wire.h"
+#include "wendy_babel.h"
 #include "wendy_net_peer_protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,5 +101,45 @@ int main(void)
     uint8_t frag[WN_DATAGRAM_MAX];
     out("fragment-0", frag, (int)wn_fragment(frag, packet, sizeof packet, 0xdeadbeef, 0));
     out("fragment-1", frag, (int)wn_fragment(frag, packet, sizeof packet, 0xdeadbeef, 1091));
+
+    struct wncf_chain chain = {.count = 2};
+    memcpy(chain.principal, principal, 106);
+    for (unsigned i = 0; i < 32; i++) {
+        chain.hashes[0][i] = (uint8_t)i;
+        chain.hashes[1][i] = (uint8_t)(0x80 + i);
+    }
+    out("cert-chain", buf, wncf_chain_write(&chain, (char *)buf, sizeof buf));
+    struct wncf_request request = {.offset = 1024};
+    memcpy(request.hash, chain.hashes[1], 32);
+    out("cert-request", buf, wncf_request_write(&request, (char *)buf, sizeof buf));
+    out("cert-missing", buf, wncf_missing_write(&request, (char *)buf, sizeof buf));
+    struct wncf_chunk piece = {.offset = 1024, .total = 1100, .size = 76};
+    memcpy(piece.hash, chain.hashes[1], 32);
+    out("cert-chunk", buf, wncf_chunk_write(&piece, chunk, (char *)buf, sizeof buf));
+
+    struct wb_message hello = {.type = WB_HELLO, .seqno = 0x1234, .interval = 400};
+    out("babel-hello", buf, (int)wb_encode(&hello, buf, sizeof buf));
+    hello.unicast = true;
+    out("babel-hello-unicast", buf, (int)wb_encode(&hello, buf, sizeof buf));
+    struct wb_message ihu = {.type = WB_IHU, .metric = 96, .interval = 800};
+    out("babel-ihu", buf, (int)wb_encode(&ihu, buf, sizeof buf));
+    struct wb_message update = {.type = WB_UPDATE, .interval = 1600, .seqno = 513, .metric = 0,
+                                .router = 0x0102030405060708};
+    wn_address(uuid, update.prefix.bytes);
+    update.prefix.bits = 128;
+    update.prefix.family = 6;
+    out("babel-update", buf, (int)wb_encode(&update, buf, sizeof buf));
+    struct wb_message retract = update;
+    retract.metric = WB_INFINITY;
+    out("babel-retract", buf, (int)wb_encode(&retract, buf, sizeof buf));
+    struct wb_message wildcard = {.type = WB_REQUEST, .wildcard = true};
+    out("babel-request-wildcard", buf, (int)wb_encode(&wildcard, buf, sizeof buf));
+    struct wb_message seqreq = {.type = WB_SEQ_REQUEST, .prefix = update.prefix, .seqno = 514,
+                                .hops = 16, .router = 0x0102030405060708};
+    out("babel-seqrequest", buf, (int)wb_encode(&seqreq, buf, sizeof buf));
+    struct wb_message ack = {.type = WB_ACK, .opaque = 0xbeef};
+    out("babel-ack", buf, (int)wb_encode(&ack, buf, sizeof buf));
+    struct wb_message ackreq = {.type = WB_ACK_REQUEST, .opaque = 0xbeef, .interval = 200};
+    out("babel-ackrequest", buf, (int)wb_encode(&ackreq, buf, sizeof buf));
     return 0;
 }
