@@ -1,0 +1,238 @@
+/* A wendy-lite router core behind a plain TCP socket, for tink's leaf session test.
+ * TLS is covered by TestMeshTLSAgainstLite, so this speaks the session in clear.
+ * Usage: router_fixture tenant router-uuid leaf-uuid leaf-cert.der root.der
+ * Prints the port, then "route active" once wnr_lookup authorizes the leaf /128,
+ * and serves 10 s more. */
+#include "wendy_net_control.h"
+#include "wendy_net_router.h"
+#include "wendy_pki_crypto.h"
+#include "wendy_pki_mesh.h"
+#include <arpa/inet.h>
+#include <poll.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
+
+int64_t esp_timer_get_time(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000000 + t.tv_nsec / 1000;
+}
+static int64_t wall_ms(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_REALTIME, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+static int fd = -1;
+static void die(const char *what, int r)
+{
+    fprintf(stderr, "router_fixture: %s failed (%d)\n", what, r);
+    exit(1);
+}
+static void full_write(const void *p, size_t n)
+{
+    while (n) {
+        ssize_t w = write(fd, p, n);
+        if (w <= 0)
+            die("write", (int)w);
+        p = (const uint8_t *)p + w;
+        n -= (size_t)w;
+    }
+}
+static void full_read(void *p, size_t n)
+{
+    while (n) {
+        ssize_t r = read(fd, p, n);
+        if (r <= 0)
+            die("read", (int)r);
+        p = (uint8_t *)p + r;
+        n -= (size_t)r;
+    }
+}
+static void frame(uint8_t kind, const void *p, size_t n)
+{
+    uint8_t h[9] = {kind};
+    if (kind == 1) {
+        wn_put32(h + 1, (uint32_t)(n + 4));
+        wn_put32(h + 5, (uint32_t)n);
+        full_write(h, 9);
+    } else {
+        wn_put32(h + 1, (uint32_t)n);
+        full_write(h, 5);
+    }
+    full_write(p, n);
+}
+static int send_babel(void *ctx, uint64_t link, const void *packet, size_t size)
+{
+    (void)ctx, (void)link;
+    uint8_t d[WN_DATAGRAM_MAX];
+    d[0] = 2;
+    memcpy(d + 1, packet, size);
+    frame(2, d, size + 1);
+    return 0;
+}
+static int publish(void *ctx, const struct wn_origin *o, int64_t unix_ms, int64_t mono)
+{
+    (void)ctx, (void)o, (void)unix_ms, (void)mono;
+    return 0; /* The leaf does not need this router's own manifest. */
+}
+static uint8_t *load(const char *path, size_t *n)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        die(path, 0);
+    fseek(f, 0, SEEK_END);
+    *n = (size_t)ftell(f);
+    rewind(f);
+    uint8_t *p = malloc(*n);
+    if (fread(p, 1, *n, f) != *n)
+        die(path, 1);
+    fclose(f);
+    return p;
+}
+static struct wnr_core core;
+static uint8_t body[65536 + 8], artifact[WG_OBJECT_MAX];
+
+int main(int argc, char **argv)
+{
+    if (argc != 6)
+        die("usage", argc);
+    const char *tenant = argv[1], *self = argv[2], *leaf = argv[3];
+    if (wendy_pki_crypto_init())
+        die("crypto", 0);
+    size_t cert_n, root_n;
+    uint8_t *cert = load(argv[4], &cert_n), *root = load(argv[5], &root_n);
+    int listener = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in a = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+    socklen_t al = sizeof a;
+    if (bind(listener, (struct sockaddr *)&a, sizeof a) || listen(listener, 1) ||
+        getsockname(listener, (struct sockaddr *)&a, &al))
+        die("listen", 0);
+    printf("%u\n", ntohs(a.sin_port));
+    fflush(stdout);
+    fd = accept(listener, NULL, NULL);
+    if (fd < 0)
+        die("accept", fd);
+
+    /* Hello preamble both ways, as peer.c setup_hello does. */
+    uint8_t len[4];
+    full_read(len, 4);
+    uint32_t n = wn_get32(len);
+    if (!n || n > WN_CONTROL_MAX)
+        die("hello size", (int)n);
+    full_read(body, n);
+    if (wn_router_hello_check(body, n, self, leaf))
+        die("hello check", 0);
+    char hello[WN_CONTROL_MAX];
+    int hn = wn_router_hello_write(self, leaf, hello + 4, sizeof hello - 4);
+    if (hn < 0)
+        die("hello write", hn);
+    wn_put32((uint8_t *)hello, (uint32_t)hn);
+    full_write(hello, (size_t)hn + 4);
+    printf("hello ok\n");
+    fflush(stdout);
+
+    struct wnr_config cfg = {.tenant = tenant, .device = self, .router = 0x0102030405060708,
+                             .seed = 7, .publish = publish, .send = send_babel};
+    memset(cfg.trust_hash, 42, 32);
+    int r;
+    if ((r = wnr_init(&core, &cfg, esp_timer_get_time(), NULL, 0)))
+        die("wnr_init", r);
+    if ((r = wnr_start(&core, wall_ms(), esp_timer_get_time())))
+        die("wnr_start", r);
+    /* The leaf key comes from its TLS certificate, install_peer_identity in peer.c. */
+    struct wendy_pki_mesh_peer peer;
+    const uint8_t *der[1] = {cert};
+    if ((r = wendy_pki_mesh_chain(der, &cert_n, 1, root, root_n, tenant, time(NULL), &peer)))
+        die("wendy_pki_mesh_chain", r);
+    if ((r = wnr_identity(&core, &peer, wall_ms(), esp_timer_get_time())))
+        die("wnr_identity", r);
+    uint64_t link;
+    if ((r = wnr_attach(&core, leaf, WNR_LAN_COST, wall_ms(), esp_timer_get_time(), &link)))
+        die("wnr_attach", r);
+
+    uint8_t leaf_uuid[16], leaf_address[16];
+    wn_uuid_parse(leaf, leaf_uuid);
+    wn_address(leaf_uuid, leaf_address);
+    size_t have = 0;
+    bool fetching = false, accepted = false, active = false;
+    int64_t deadline = esp_timer_get_time() + INT64_C(45000000);
+    while (esp_timer_get_time() < deadline) {
+        struct pollfd p = {.fd = fd, .events = POLLIN};
+        if (poll(&p, 1, 100) > 0) {
+            uint8_t h[5];
+            full_read(h, 5);
+            uint32_t size = wn_get32(h + 1);
+            if (size > sizeof body)
+                die("frame size", (int)size);
+            full_read(body, size);
+            if (h[0] == 2 && size && body[0] == 2) {
+                r = wnr_receive(&core, link, body + 1, size - 1, wall_ms(), esp_timer_get_time());
+                if (r < 0)
+                    fprintf(stderr, "babel receive %d\n", r);
+            } else if (h[0] == 1) {
+                if (size < 4 || wn_get32(body) != size - 4)
+                    die("control framing", 0);
+                const uint8_t *c = body + 4;
+                size_t cn = size - 4;
+                struct wn_doc d;
+                if (wn_doc_parse_bounded(&d, c, cn, 65536))
+                    die("control cbor", 0);
+                if (wn_doc_equal(&d, wn_doc_member(&d, 0, "kind"), "certificate")) {
+                    printf("certificate message\n");
+                } else if (wn_doc_equal(&d, wn_doc_member(&d, 0, "kind"), "gossip")) {
+                    struct wg_message m;
+                    if (wn_gossip_read_view(c, cn, &m))
+                        die("gossip read", 0);
+                    char out[WN_CONTROL_MAX];
+                    if (m.op == WG_HAVE && !fetching && !accepted) {
+                        struct wg_message want = {.id = m.id, .op = WG_WANT, .request = 1};
+                        int wn = wn_gossip_write(&want, out, sizeof out);
+                        frame(1, out, (size_t)wn);
+                        fetching = true;
+                        have = 0;
+                    } else if (m.op == WG_DATA && fetching && m.request == 1) {
+                        if (m.offset != have || m.total > sizeof artifact)
+                            die("gossip offset", (int)m.offset);
+                        memcpy(artifact + have, m.data, m.size);
+                        have += m.size;
+                        if (have == m.total) {
+                            uint8_t digest[32];
+                            fetching = false;
+                            r = wn_gossip_identify(NULL, 1, artifact, have, digest);
+                            if (r || memcmp(digest, m.id.hash, 32))
+                                die("gossip digest", r);
+                            r = wnr_manifest(&core, artifact, have, wall_ms(), esp_timer_get_time());
+                            printf("manifest accept result %d\n", r);
+                            fflush(stdout);
+                            if (r)
+                                die("wnr_manifest", r);
+                            accepted = true;
+                        }
+                    }
+                } else {
+                    printf("control %.*s\n", (int)cn > 40 ? 40 : (int)cn, "");
+                }
+            }
+        }
+        if ((r = wnr_tick(&core, wall_ms(), esp_timer_get_time())) < 0)
+            die("wnr_tick", r);
+        struct wb_route route;
+        if (!active && wnr_lookup(&core, leaf_address, esp_timer_get_time(), &route)) {
+            printf("route active router=%016llx seqno=%u metric=%u\n",
+                   (unsigned long long)route.router, route.seqno, route.metric);
+            fflush(stdout);
+            /* Keep serving so the leaf also sees the link up. */
+            active = true;
+            deadline = esp_timer_get_time() + INT64_C(10000000);
+        }
+    }
+    if (!active)
+        die("route never became active", accepted);
+    return 0;
+}

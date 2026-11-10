@@ -1,0 +1,10 @@
+# Builds router_fixture against a wendy-lite checkout. See ../README.md.
+cmake_minimum_required(VERSION 3.20)
+project(tink_router_fixture C)
+set(LITE "" CACHE PATH "wendy-lite checkout")
+if(NOT LITE)
+    message(FATAL_ERROR "Set LITE to a wendy-lite checkout")
+endif()
+add_subdirectory("${LITE}/components/wendy_net_peer/tests" peer EXCLUDE_FROM_ALL)
+add_executable(router_fixture router_fixture.c)
+target_link_libraries(router_fixture PRIVATE peer_session)
