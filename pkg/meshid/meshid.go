@@ -215,3 +215,36 @@ func isUUID(s string) bool {
 	}
 	return true
 }
+
+// Identity returns the tenant and device UUIDs of a Wendy device
+// certificate from its single SPIFFE device URI.
+func Identity(der []byte) (tenant, device string, err error) {
+	var c lx509.Certificate
+	if err = c.Parse(der); err != nil {
+		return "", "", err
+	}
+	san := c.SubjectAltName
+	names, ok := readTLV(&san, 0x30)
+	if !ok {
+		return "", "", errSAN
+	}
+	found := ""
+	for len(names) > 0 {
+		tag := names[0]
+		value, ok := readTLV(&names, tag)
+		if !ok {
+			return "", "", errSAN
+		} else if tag != 0x86 {
+			continue
+		}
+		if found != "" {
+			return "", "", ErrPrincipal
+		}
+		found = string(value)
+	}
+	if len(found) != principalLen || found[:len(prefix)] != prefix || found[len(prefix)+uuidLen:devicePos] != "/device/" ||
+		!isUUID(found[len(prefix):len(prefix)+uuidLen]) || !isUUID(found[devicePos:]) {
+		return "", "", ErrPrincipal
+	}
+	return found[len(prefix) : len(prefix)+uuidLen], found[devicePos:], nil
+}
