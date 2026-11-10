@@ -8,7 +8,7 @@ import (
 func TestRoundTrip(t *testing.T) {
 	var f Framer
 	var stream bytes.Buffer
-	ctl := bytes.Repeat([]byte{0xa1}, ControlMax)
+	ctl := bytes.Repeat([]byte{0xa1}, 4096)
 	dg := bytes.Repeat([]byte{7}, DatagramMax)
 	if err := f.WriteControl(&stream, ctl); err != nil {
 		t.Fatal(err)
@@ -18,7 +18,7 @@ func TestRoundTrip(t *testing.T) {
 	if err := f.WriteDatagram(&stream, dg); err != nil {
 		t.Fatal(err)
 	}
-	if got := stream.Bytes()[:ControlPrefix]; !bytes.Equal(got, []byte{1, 0, 0, 8, 4, 0, 0, 8, 0}) {
+	if got := stream.Bytes()[:ControlPrefix]; !bytes.Equal(got, []byte{1, 0, 0, 16, 4, 0, 0, 16, 0}) {
 		t.Fatalf("control header %x", got)
 	}
 	buf := make([]byte, MaxFrameBuffer)
@@ -40,7 +40,7 @@ func TestReject(t *testing.T) {
 		{1, 0, 0, 0, 6, 0, 0, 0, 1, 9, 9}, // Inner length mismatch.
 		{2, 0, 0, 0, 0},                   // Empty datagram.
 		{2, 0, 0, 4, 0x4d},                // Datagram over 1100.
-		{9, 0, 0, 8, 5},                   // Unknown kind over the control limit.
+		{9, 0, 1, 0, 5},                   // Unknown kind over the control limit.
 	} {
 		if _, _, err := f.ReadFrame(bytes.NewReader(frame), buf); err == nil {
 			t.Errorf("accepted %x", frame)
@@ -59,5 +59,34 @@ func TestOperatorKinds(t *testing.T) {
 	b := stream.Bytes()
 	if b[0] != 5 || b[ControlPrefix+1] != 4 {
 		t.Fatalf("kinds %x", b)
+	}
+}
+
+func TestOversizeDrained(t *testing.T) {
+	var f Framer
+	var stream bytes.Buffer
+	f.WriteControl(&stream, make([]byte, 5000))
+	f.WriteDatagram(&stream, []byte{1, 2})
+	buf := make([]byte, MaxFrameBuffer)
+	control, p, err := f.ReadFrame(&stream, buf)
+	if err != nil || control || !bytes.Equal(p, []byte{1, 2}) || f.Dropped != 1 {
+		t.Fatal(control, p, err, f.Dropped)
+	}
+}
+
+func TestHello(t *testing.T) {
+	var stream bytes.Buffer
+	if err := WriteHello(&stream, []byte{0xa0}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stream.Bytes(), []byte{0, 0, 0, 1, 0xa0}) {
+		t.Fatalf("%x", stream.Bytes())
+	}
+	got, err := ReadHello(&stream, make([]byte, HelloMax))
+	if err != nil || !bytes.Equal(got, []byte{0xa0}) {
+		t.Fatal(got, err)
+	}
+	if _, err := ReadHello(bytes.NewReader([]byte{0, 0, 9, 0}), make([]byte, HelloMax)); err == nil {
+		t.Fatal("accepted an oversized hello")
 	}
 }

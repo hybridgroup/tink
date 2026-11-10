@@ -18,11 +18,15 @@ const (
 	KindOperatorControl  = 5
 	KindOperatorDatagram = 4
 
-	HeaderSize     = 5
-	ControlPrefix  = 9
-	ControlMax     = 2048 // WN_CONTROL_MAX
-	DatagramMax    = 1100 // WN_DATAGRAM_MAX
-	MaxFrameBuffer = ControlPrefix + ControlMax
+	HeaderSize    = 5
+	ControlPrefix = 9
+	// ControlMax is the control payload limit Lite's carrier accepts, peer.c wnc_init.
+	ControlMax  = 65536
+	DatagramMax = 1100 // WN_DATAGRAM_MAX
+	// HelloMax bounds the hello preamble, WN_CONTROL_MAX.
+	HelloMax = 2048
+	// MaxFrameBuffer holds any control payload Lite writes with WN_CONTROL_MAX and any datagram.
+	MaxFrameBuffer = 4 + 4096
 )
 
 var (
@@ -30,12 +34,43 @@ var (
 	ErrTooLarge = errors.New("carrier: payload too large")
 )
 
+// WriteHello sends the hello preamble that precedes framing: u32BE length | CBOR.
+// See setup_hello in wendy-lite components/wendy_net_peer/src/peer.c.
+func WriteHello(w io.Writer, hello []byte) error {
+	if len(hello) == 0 || len(hello) > HelloMax {
+		return ErrTooLarge
+	}
+	var buf [4 + HelloMax]byte
+	binary.BigEndian.PutUint32(buf[:], uint32(len(hello)))
+	n := 4 + copy(buf[4:], hello)
+	_, err := w.Write(buf[:n])
+	return err
+}
+
+// ReadHello reads the peer's hello preamble into buf and returns the CBOR.
+func ReadHello(r io.Reader, buf []byte) ([]byte, error) {
+	var hdr [4]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return nil, err
+	}
+	n := int(binary.BigEndian.Uint32(hdr[:]))
+	if n == 0 || n > HelloMax || n > len(buf) {
+		return nil, ErrInvalid
+	}
+	if _, err := io.ReadFull(r, buf[:n]); err != nil {
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
 // Framer writes and reads frames. The zero value uses kinds 1 and 2 and ControlMax.
 type Framer struct {
 	// Operator selects kinds 5 and 4.
 	Operator bool
 	// ControlLimit bounds control payloads, ControlMax if zero.
 	ControlLimit int
+	// Dropped counts valid frames skipped because they did not fit the read buffer.
+	Dropped int
 	// buf holds one outgoing frame so it goes out in a single Write.
 	buf [ControlPrefix + DatagramMax]byte
 }
@@ -91,10 +126,10 @@ func (f *Framer) WriteDatagram(w io.Writer, payload []byte) error {
 }
 
 // ReadFrame reads the next control or datagram frame into buf, which must
-// hold MaxFrameBuffer bytes. Frames of unknown kind are drained and skipped,
-// as Lite does. The payload points into buf.
+// hold at least DatagramMax bytes. Frames of unknown kind, and control frames
+// larger than buf, are drained and skipped. The payload points into buf.
 func (f *Framer) ReadFrame(r io.Reader, buf []byte) (control bool, payload []byte, err error) {
-	if len(buf) < 4+f.limit() || len(buf) < DatagramMax {
+	if len(buf) < DatagramMax {
 		return false, nil, ErrTooLarge
 	}
 	controlKind, datagramKind := f.kinds()
@@ -117,7 +152,14 @@ func (f *Framer) ReadFrame(r io.Reader, buf []byte) (control bool, payload []byt
 			if size > f.limit()+4 {
 				return false, nil, ErrInvalid
 			}
-			if _, err = io.ReadFull(r, buf[:size]); err != nil {
+			if err = drain(r, buf, size); err != nil {
+				return false, nil, err
+			}
+			continue
+		}
+		if size > len(buf) {
+			f.Dropped++
+			if err = drain(r, buf, size); err != nil {
 				return false, nil, err
 			}
 			continue
@@ -134,4 +176,15 @@ func (f *Framer) ReadFrame(r io.Reader, buf []byte) (control bool, payload []byt
 		}
 		return true, body[4:], nil
 	}
+}
+
+func drain(r io.Reader, buf []byte, n int) error {
+	for n > 0 {
+		m, err := io.ReadFull(r, buf[:min(n, len(buf))])
+		if err != nil {
+			return err
+		}
+		n -= m
+	}
+	return nil
 }
