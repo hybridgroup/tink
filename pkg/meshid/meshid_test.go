@@ -152,3 +152,16 @@ func TestVerifyPeerUntrusted(t *testing.T) {
 		t.Fatal("accepted a chain from another root")
 	}
 }
+
+func TestIdentity(t *testing.T) {
+	f := newFixture(t)
+	der, _ := f.device(t, principal(tenant, peer))
+	tn, dev, err := Identity(der)
+	if err != nil || tn != tenant || dev != peer {
+		t.Fatal(tn, dev, err)
+	}
+	two, _ := f.device(t, principal(tenant, peer), principal(tenant, self))
+	if _, _, err := Identity(two); err == nil {
+		t.Fatal("accepted two principals")
+	}
+}
