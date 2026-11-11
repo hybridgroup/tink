@@ -1,3 +1,4 @@
 go.work
 go.work.sum
 internal/liteinterop/router/build/
+.vscode/
