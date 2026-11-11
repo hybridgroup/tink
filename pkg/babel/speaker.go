@@ -35,6 +35,9 @@ type Speaker struct {
 	updateNow   bool
 	pendingAcks [4]uint16
 	nAcks       int
+	// Decoding into Speaker keeps Receive free of heap allocations.
+	rd  Reader
+	msg Message
 }
 
 func (s *Speaker) cost() uint16 {
@@ -46,7 +49,10 @@ func (s *Speaker) cost() uint16 {
 
 // Receive handles a Babel packet from the neighbour at nowMS.
 func (s *Speaker) Receive(packet []byte, nowMS int64) error {
-	return Decode(packet, func(m *Message) {
+	if err := s.rd.Reset(packet); err != nil {
+		return err
+	}
+	for m := &s.msg; s.rd.Next(m); {
 		switch m.Type {
 		case TypeHello:
 			if s.helloUntil <= nowMS {
@@ -71,7 +77,8 @@ func (s *Speaker) Receive(packet []byte, nowMS int64) error {
 				s.updateNow = true
 			}
 		}
-	})
+	}
+	return nil
 }
 
 func (s *Speaker) ours(m *Message) bool {

@@ -136,19 +136,25 @@ func writePreimage(w writer, principal string, body []byte) {
 	w.Write(body)
 }
 
-// Sign signs body for principal with the device credential. Its Sign hashes
-// the preimage with SHA-256 and writes an ASN.1 DER ECDSA signature.
-func Sign(cred lcrypto.Credential, principal string, body []byte, sig []byte) (int, error) {
+// Sign writes an ASN.1 DER ECDSA signature of body into sig with the device credential.
+// The preimage is built in scratch, which is grown when shorter than PreimageSize(body).
+func Sign(cred lcrypto.Credential, principal string, body, sig, scratch []byte) (int, error) {
 	if !validPrincipal(principal) || len(body) == 0 || len(body) > BodyMax {
 		return 0, ErrInvalid
 	}
-	pre := make([]byte, 0, len(domain)+4+addr.PrincipalLen+len(body))
+	pre := scratch[:0]
+	if cap(pre) < PreimageSize(body) {
+		pre = make([]byte, 0, PreimageSize(body))
+	}
 	pre = append(pre, domain...)
 	pre = append(pre, 0, 0, 0, addr.PrincipalLen)
 	pre = append(pre, principal...)
 	pre = append(pre, body...)
 	return cred.Sign(sig, pre, schemeECDSAP256SHA256)
 }
+
+// PreimageSize is the length of the signed preimage of body.
+func PreimageSize(body []byte) int { return len(domain) + 4 + addr.PrincipalLen + len(body) }
 
 // Verifier checks manifest signatures with a device's P-256 public key.
 type Verifier struct {

@@ -68,6 +68,9 @@ type Framer struct {
 	ControlLimit int
 	// Dropped counts valid frames skipped because they did not fit the read buffer.
 	Dropped int
+	// Headers live here so reads and writes do not allocate.
+	rhdr [HeaderSize]byte
+	whdr [ControlPrefix]byte
 	// buf holds one outgoing frame so it goes out in a single Write.
 	buf [ControlPrefix + DatagramMax]byte
 }
@@ -92,7 +95,7 @@ func (f *Framer) WriteControl(w io.Writer, payload []byte) error {
 		return ErrTooLarge
 	}
 	control, _ := f.kinds()
-	var hdr [ControlPrefix]byte
+	hdr := &f.whdr
 	hdr[0] = control
 	binary.BigEndian.PutUint32(hdr[1:], uint32(4+len(payload)))
 	binary.BigEndian.PutUint32(hdr[5:], uint32(len(payload)))
@@ -130,7 +133,7 @@ func (f *Framer) ReadFrame(r io.Reader, buf []byte) (control bool, payload []byt
 	}
 	controlKind, datagramKind := f.kinds()
 	for {
-		var hdr [HeaderSize]byte
+		hdr := &f.rhdr
 		if _, err = io.ReadFull(r, hdr[:]); err != nil {
 			return false, nil, err
 		}

@@ -67,7 +67,8 @@ func (s *Assembler) Add(d []byte, nowUS int64) ([]byte, error) {
 		return nil, ErrInvalid
 	}
 	if s.parts == 0 || nowUS >= s.deadline || s.id != id {
-		*s = Assembler{id: id, total: total, deadline: nowUS + reassemblyUS}
+		// Field by field, since a composite literal of the 1.3 KB Assembler is a heap temporary in TinyGo.
+		s.id, s.total, s.received, s.parts, s.deadline = id, total, 0, 0, nowUS+reassemblyUS
 	}
 	part := uint8(1)
 	if offset != 0 {
