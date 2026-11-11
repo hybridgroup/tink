@@ -1,5 +1,7 @@
 # tink
 
+<p align="center"><img src="images/tink-gopher.png" alt="tink gopher" width="400"></p>
+
 Go and TinyGo packages for joining a Wendy Net mesh.
 
 ## Layout
