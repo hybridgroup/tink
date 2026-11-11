@@ -46,3 +46,13 @@ router_tls_fixture tenant router-uuid leaf-uuid root.der key.der cert.der port
 ```
 
 `router_fixture` speaks plain TCP on loopback and takes the leaf key from `leaf-cert.der`. `router_tls_fixture` runs Lite's mesh TLS server on `0.0.0.0:port` and takes the leaf key from TLS. Both print the port, then `route active` once `wnr_lookup` authorizes the leaf /128, and serve 10 s more.
+
+## Soak
+
+Set `ROUTER_SOAK_SECONDS` to keep the session up that long after the route is active. The fixture then fetches each manifest the leaf republishes, logs a status line every 30 s, and ends with `soak done`. It exits nonzero if the route was lost or fewer than 2 manifests were accepted.
+
+```
+ROUTER_SOAK_SECONDS=1800 router_tls_fixture tenant router leaf root.der key.der cert.der 43024
+```
+
+A XIAO ESP32-S3 running examples/wendynet-wifi passed 30 minutes this way, with 6 manifests accepted and the route never lost.
