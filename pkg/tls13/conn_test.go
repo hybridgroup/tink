@@ -15,6 +15,7 @@ import (
 	"time"
 
 	lx509 "github.com/soypat/lcrypto/x509"
+	"github.com/soypat/lneto/crypto/tlsraw"
 )
 
 type pki struct {
@@ -242,4 +243,46 @@ func TestHandshakeRejectsWrongALPN(t *testing.T) {
 	}
 	cs.Close()
 	<-done
+}
+
+func TestMaxRecord(t *testing.T) {
+	p := newPKI(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		ss, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		scfg := p.serverConfig()
+		scfg.DynamicRecordSizingDisabled = true // Send full size records from the start.
+		srv := tls.Server(ss, scfg)
+		defer srv.Close()
+		if srv.Handshake() == nil {
+			srv.Write(make([]byte, 8000)) // One record over the client's limit.
+			io.Copy(io.Discard, srv)
+		}
+	}()
+	cs, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	cfg := p.clientConfig(t)
+	cfg.MaxRecord = 4096
+	var c Conn
+	if err := c.Configure(cfg); err != nil {
+		t.Fatal(err)
+	}
+	c.Open(cs)
+	if err := c.Handshake(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = io.ReadFull(&c, make([]byte, 8000))
+	if err != alertError(tlsraw.AlertRecordOverflow) {
+		t.Fatalf("got %v, want record_overflow", err)
+	}
 }
