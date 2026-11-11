@@ -8,3 +8,8 @@ endif()
 add_subdirectory("${LITE}/components/wendy_net_peer/tests" peer EXCLUDE_FROM_ALL)
 add_executable(router_fixture router_fixture.c)
 target_link_libraries(router_fixture PRIVATE peer_session)
+add_executable(router_tls_fixture router_fixture.c "${LITE}/components/wendy_pki/src/wendy_pki_tls.c"
+    "${IDF_COMPONENTS}/http_parser/http_parser.c")
+target_compile_definitions(router_tls_fixture PRIVATE ROUTER_TLS=1)
+target_include_directories(router_tls_fixture PRIVATE "${LITE}/components/wendy_pki/src" "${IDF_COMPONENTS}/http_parser")
+target_link_libraries(router_tls_fixture PRIVATE peer_session pki)
