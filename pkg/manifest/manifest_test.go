@@ -175,3 +175,10 @@ func TestBodyRules(t *testing.T) {
 }
 
 func bigOne() *big.Int { return big.NewInt(1) }
+
+func TestBodyString(t *testing.T) {
+	b := liteBody(t)
+	if got := b.String(); got != litegolden.Self+" rev 7" {
+		t.Fatal(got)
+	}
+}

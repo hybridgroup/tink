@@ -169,3 +169,19 @@ func TestOfferEvictsEarliest(t *testing.T) {
 		t.Fatal("did not replace the object that expires first")
 	}
 }
+
+func TestGone(t *testing.T) {
+	a := &Session{Type: 1}
+	id := a.Offer([]byte("body"), 1000)
+	var got *control.Gossip
+	emit := func(g *control.Gossip) error { got = g; return nil }
+	if err := a.Gone(emit, id); err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Op != control.OpGone || got.Digest != id {
+		t.Fatal("no GONE sent")
+	}
+	if a.find(id, 0) != nil {
+		t.Fatal("object kept after Gone")
+	}
+}
