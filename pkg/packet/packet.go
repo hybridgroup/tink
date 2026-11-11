@@ -1,8 +1,5 @@
-// Package packet splits mesh IPv6 packets into carrier datagrams and joins
-// them again, as wendy-lite components/wendy_net_peer/src/packet.c does.
-//
-// A fragment datagram is 01 | id u32BE | total u16BE | offset u16BE | data,
-// with offset 0 or 1091.
+// Package packet splits mesh IPv6 packets into at most two fragment datagrams and joins
+// them, as wendy-lite components/wendy_net_peer/src/packet.c does.
 package packet
 
 import (
@@ -51,9 +48,8 @@ type Assembler struct {
 	deadline int64
 }
 
-// Add takes one datagram at nowUS microseconds. It returns the complete
-// packet, valid until the next call, or nil while incomplete. Datagrams of
-// other kinds return nil without touching a partial packet.
+// Add returns the complete packet, valid until the next call, or nil while
+// incomplete. Datagrams of other kinds return nil and leave a partial packet alone.
 func (s *Assembler) Add(d []byte, nowUS int64) ([]byte, error) {
 	if len(d) == 0 || len(d) > DatagramMax {
 		return nil, ErrInvalid

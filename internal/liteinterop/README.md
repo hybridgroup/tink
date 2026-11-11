@@ -38,4 +38,11 @@ Build target `router_tls_fixture` as well to put Lite's mesh TLS server in front
 LITE_ROUTER_TLS_FIXTURE=$B/out/router_tls_fixture go test -v -run TLSLeaf ./internal/liteinterop
 ```
 
-The same binary serves a real leaf on the LAN: `router_tls_fixture tenant router leaf root.der key.der cert.der 43024`.
+The same binary serves a real leaf on the LAN.
+
+```
+router_fixture tenant router-uuid leaf-uuid leaf-cert.der root.der
+router_tls_fixture tenant router-uuid leaf-uuid root.der key.der cert.der port
+```
+
+`router_fixture` speaks plain TCP on loopback and takes the leaf key from `leaf-cert.der`. `router_tls_fixture` runs Lite's mesh TLS server on `0.0.0.0:port` and takes the leaf key from TLS. Both print the port, then `route active` once `wnr_lookup` authorizes the leaf /128, and serve 10 s more.

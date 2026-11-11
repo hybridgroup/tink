@@ -1,5 +1,5 @@
-// Package addr holds Wendy Net device identifiers: UUIDs, mesh IPv6
-// addresses and SPIFFE principals, as in wendy-lite components/wendy_net_peer/src/protocol.c.
+// Package addr holds device UUIDs, mesh IPv6 addresses and SPIFFE principals,
+// as in wendy-lite components/wendy_net_peer/src/protocol.c.
 package addr
 
 import (
@@ -105,9 +105,8 @@ func PrincipalDevice(principal string, tenant UUID) (UUID, error) {
 	return d, nil
 }
 
-// ParseDeviceHostname parses device-<uuid>.wendy.internal and the legacy
-// .mesh.wendy.internal and .mesh.local names, case insensitive with an
-// optional trailing dot. ok is false for any other name.
+// ParseDeviceHostname parses device-<uuid>.wendy.internal and the legacy mesh names,
+// in any case. ok is false for any other name.
 func ParseDeviceHostname(host string) (u UUID, ok bool, err error) {
 	if n := len(host); n > 0 && host[n-1] == '.' {
 		host = host[:n-1]

@@ -1,8 +1,5 @@
-// Package carrier frames control and datagram messages on a Wendy Net link
-// stream, as wendy-lite components/wendy_net_peer/src/carrier.c does.
-//
-// Each frame is kind u8 | length u32BE | body. A control body starts with
-// its own u32BE length followed by CBOR. A datagram body is opaque.
+// Package carrier frames messages on a link as kind u8, length u32BE and body,
+// as wendy-lite components/wendy_net_peer/src/carrier.c does.
 package carrier
 
 import (
@@ -34,7 +31,7 @@ var (
 	ErrTooLarge = errors.New("carrier: payload too large")
 )
 
-// WriteHello sends the hello preamble that precedes framing: u32BE length | CBOR.
+// WriteHello sends the hello that precedes framing, a u32BE length then CBOR.
 // See setup_hello in wendy-lite components/wendy_net_peer/src/peer.c.
 func WriteHello(w io.Writer, hello []byte) error {
 	if len(hello) == 0 || len(hello) > HelloMax {
@@ -125,9 +122,8 @@ func (f *Framer) WriteDatagram(w io.Writer, payload []byte) error {
 	return err
 }
 
-// ReadFrame reads the next control or datagram frame into buf, which must
-// hold at least DatagramMax bytes. Frames of unknown kind, and control frames
-// larger than buf, are drained and skipped. The payload points into buf.
+// ReadFrame reads the next frame into buf, at least DatagramMax bytes. Unknown
+// kinds and control frames larger than buf are skipped. payload points into buf.
 func (f *Framer) ReadFrame(r io.Reader, buf []byte) (control bool, payload []byte, err error) {
 	if len(buf) < DatagramMax {
 		return false, nil, ErrTooLarge

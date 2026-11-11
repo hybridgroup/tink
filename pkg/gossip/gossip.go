@@ -1,9 +1,5 @@
-// Package gossip moves signed artifacts over one Wendy Net link. It follows
-// wg_receive and wg_poll in wendy-lite components/wendy_net_gossip/src/gossip.c,
-// reduced to the single neighbour of a leaf.
-//
-// Artifacts are untrusted until the caller verifies them. Session only
-// checks that a completed body matches the digest it was announced with.
+// Package gossip moves artifacts over one link, as wg_receive and wg_poll in wendy-lite
+// components/wendy_net_gossip/src/gossip.c do. It checks digests, not signatures.
 package gossip
 
 import (
@@ -27,8 +23,8 @@ var (
 	ErrFull   = errors.New("gossip: no room for another object")
 )
 
-// Identify returns the artifact digest, as wn_gossip_identify and WendyOS
-// netgossip.Identify compute it: SHA-256 of "wendy-mesh-artifact/1\0" | type | u32BE length | data.
+// Identify returns SHA-256 of "wendy-mesh-artifact/1\0", type, u32BE length and data,
+// as wn_gossip_identify and WendyOS netgossip.Identify compute it.
 func Identify(typ uint8, data []byte) [32]byte {
 	d := sha256.New()
 	d.Write([]byte("wendy-mesh-artifact/1\x00"))
@@ -80,9 +76,8 @@ type Session struct {
 	nextRequest uint64
 }
 
-// Offer stores data to serve until expiresMS and returns its digest. The
-// caller announces it with Have. A new body for the same slot replaces the
-// oldest object when the Session is full.
+// Offer stores data to serve until expiresMS and returns its digest for Have.
+// When the Session is full it replaces the object that expires first.
 func (s *Session) Offer(data []byte, expiresMS uint64) [32]byte {
 	id := Identify(s.Type, data)
 	slot := &s.objects[0]

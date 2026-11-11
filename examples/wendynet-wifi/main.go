@@ -1,13 +1,7 @@
 //go:build tinygo
 
-// This example joins a Wendy Net mesh as a leaf over Wi-Fi. It dials one
-// Lite router on TCP 43024, runs mutual TLS and keeps the leaf session up.
-//
-// Put the device credentials from an enrolled device in creds/, see README.md, then
-//
-//	tinygo flash -target xiao-esp32s3 -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
-//
-// Without -X main.peer=<ip> it finds a router with mDNS.
+// This example joins a Wendy Net mesh as a leaf over Wi-Fi, dialing one Lite router on TCP 43024.
+// See README.md for credentials and the flash command.
 package main
 
 import (
