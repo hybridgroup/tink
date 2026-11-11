@@ -286,3 +286,30 @@ func TestMaxRecord(t *testing.T) {
 		t.Fatalf("got %v, want record_overflow", err)
 	}
 }
+
+func TestErrors(t *testing.T) {
+	if alertError(40).Error() != "tls13: sent alert 40" || peerAlertError(42).Error() != "tls13: received alert 42" {
+		t.Fatal("alert text")
+	}
+	v := verifyError{io.EOF}
+	if v.Error() != "tls13: peer verification failed: EOF" || !errors.Is(v, io.EOF) {
+		t.Fatal("verify error")
+	}
+}
+
+func TestPeerChain(t *testing.T) {
+	p := peerChain{n: 1}
+	p.certs[0] = []byte{1, 2, 3}
+	if n, err := p.Cert(make([]byte, 2), 0); n != 3 || err != io.ErrShortBuffer {
+		t.Fatal("short buffer", n, err)
+	}
+	if n, err := p.Cert(make([]byte, 3), 0); n != 3 || err != nil {
+		t.Fatal("cert", n, err)
+	}
+	if _, err := p.Cert(nil, 1); err == nil {
+		t.Fatal("cert out of range")
+	}
+	if _, err := p.CertView(1); err == nil {
+		t.Fatal("cert view out of range")
+	}
+}

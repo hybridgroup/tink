@@ -189,3 +189,19 @@ func TestGossipValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestKind(t *testing.T) {
+	var d cbor.Doc
+	if err := d.Parse(litegolden.Get("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if Kind(&d) != "hello" {
+		t.Fatal("kind")
+	}
+	if err := d.Parse([]byte{0xa0}); err != nil {
+		t.Fatal(err)
+	}
+	if Kind(&d) != "" {
+		t.Fatal("kind of empty map")
+	}
+}

@@ -1,6 +1,7 @@
 package cbor
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/hybridgroup/tink/internal/litegolden"
@@ -138,5 +139,53 @@ func TestKeyName(t *testing.T) {
 		if got := KeyName(name); got != key {
 			t.Errorf("%s: %s", name, got)
 		}
+	}
+}
+
+func TestWriterHeads(t *testing.T) {
+	var buf [64]byte
+	var w Writer
+	w.Reset(buf[:], 0)
+	w.Array(6)
+	for _, v := range []uint64{23, 0xff, 0xffff, 0xffffffff} {
+		w.Uint(v)
+	}
+	w.TextBytes([]byte("hi"))
+	w.Bytes([]byte{9})
+	if w.Len() != 1+1+2+3+5+3+2 {
+		t.Fatal("len", w.Len())
+	}
+	b, err := w.Finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d Doc
+	if err := d.Parse(b); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range []uint64{23, 0xff, 0xffff, 0xffffffff} {
+		if v, err := d.Uint(d.Elem(0, k)); err != nil || v != want {
+			t.Fatal(k, v, err)
+		}
+	}
+	if !d.Equal(d.Elem(0, 4), "hi") {
+		t.Fatal("text bytes")
+	}
+	if v, err := d.Bytes(d.Elem(0, 5)); err != nil || !bytes.Equal(v, []byte{9}) {
+		t.Fatal("bytes", v, err)
+	}
+	if _, err := d.Bytes(d.Elem(0, 4)); err != ErrType {
+		t.Fatal("bytes of text", err)
+	}
+	if !bytes.Equal(d.Raw(d.Elem(0, 5)), []byte{0x41, 9}) || !bytes.Equal(d.Raw(0), b) {
+		t.Fatal("raw")
+	}
+	if d.Raw(-1) != nil || d.Kind(99) != KindInvalid || d.Elem(0, 6) != -1 || d.Elem(1, 0) != -1 {
+		t.Fatal("out of range")
+	}
+	w.Reset(buf[:2], 0)
+	w.Raw([]byte{1, 2, 3})
+	if _, err := w.Finish(); err == nil {
+		t.Fatal("raw overflow not reported")
 	}
 }

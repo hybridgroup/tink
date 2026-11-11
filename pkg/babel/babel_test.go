@@ -127,3 +127,20 @@ func TestSpeaker(t *testing.T) {
 		t.Fatal("seqno request ignored")
 	}
 }
+
+func TestAnnounce(t *testing.T) {
+	s := Speaker{Router: 7, Prefix: prefix(t), Seqno: 1}
+	var p Packet
+	s.Poll(&p, 0)
+	p.Reset()
+	if !p.Empty() {
+		t.Fatal("reset packet not empty")
+	}
+	s.Announce()
+	s.Poll(&p, 1)
+	var types []uint8
+	Decode(p.Bytes(), func(m *Message) { types = append(types, m.Type) })
+	if !bytes.Equal(types, []byte{TypeUpdate}) {
+		t.Fatalf("poll after Announce %v", types)
+	}
+}
