@@ -9,4 +9,9 @@ require (
 	tinygo.org/x/espradio v0.5.1-0.20261111151050-d9e867e06617
 )
 
+require (
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
+	tinygo.org/x/tinyfont v0.7.0 // indirect
+)
+
 replace github.com/soypat/lcrypto => github.com/hybridgroup/lcrypto v0.0.0-20261111160434-8b8b56bd7c08
