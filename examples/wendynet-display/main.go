@@ -71,7 +71,6 @@ func main() {
 	check("ntp", err)
 	runtime.AdjustTimeOffset(int64(offset))
 	println("time", time.Now().String())
-	heap("after ntp")
 
 	check("credential", cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{deviceCert}, Key: deviceKey}))
 	check("tls config", conn.Configure(tls13.Config{
@@ -121,20 +120,16 @@ func session(tenant, self addr.UUID) error {
 		return err
 	}
 	defer tcp.Close()
-	heap("dialed")
 	if err := conn.Open(tcp); err != nil {
 		return err
 	}
-	heap("tls open")
 	state("tls")
 	// A peer that stalls the handshake must not hang the leaf.
 	tcp.SetDeadline(time.Now().Add(30 * time.Second))
 	if err := conn.Handshake(); err != nil {
 		return err
 	}
-	// lneto StackBerkeley ignores a zero deadline instead of clearing it, so push it far out.
-	tcp.SetDeadline(time.Now().Add(100 * 365 * 24 * time.Hour))
-	heap("tls done")
+	tcp.SetDeadline(time.Time{})
 	router, err := addr.ParseUUID(verifier.Device())
 	if err != nil {
 		return err
@@ -146,13 +141,10 @@ func session(tenant, self addr.UUID) error {
 		RouterID: binary.BigEndian.Uint64(self[8:]),
 		NowMS:    func() int64 { return time.Now().UnixMilli() },
 		OnPacket: func(p []byte) { println("packet", len(p), "bytes") },
-		// Heap after each link event, such as the republish every 300 s, shows leaks over time.
-		Log: func(msg string) { heap(msg) },
 	})
 	if err != nil {
 		return err
 	}
-	heap("link ready")
 	state("linked " + time.Now().Format("15:04:05") + " UTC")
 	return l.Run(&conn, nil)
 }
@@ -191,12 +183,6 @@ func discover(tenant, self addr.UUID) (mdns.Candidate, error) {
 }
 
 var errNoRouter = errors.New("no router found with mDNS")
-
-func heap(stage string) {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	println("heap", stage, "in use", m.HeapInuse, "free", m.HeapIdle, "total", m.HeapSys)
-}
 
 func check(what string, err error) {
 	for err != nil {
