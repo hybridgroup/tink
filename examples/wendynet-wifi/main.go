@@ -55,9 +55,9 @@ func main() {
 	self, _ := addr.ParseUUID(deviceID)
 	println("device", deviceID)
 
-	// Half the default receive ring and a 2 KiB TCP send buffer leave heap for TLS and the session.
-	// The leaf sends at most a control frame of about 1.1 KiB at a time.
-	wifi := esplink.Esplink{RxRingSize: 8, TCP: esplink.TCPConfig{TxBufSize: 2048}}
+	// The 1 KiB TCP window keeps at most 2 router segments in flight, so 4 ring slots suffice.
+	// The leaf sends at most a control frame of about 1.1 KiB, so a 2 KiB send buffer suffices.
+	wifi := esplink.Esplink{RxRingSize: 4, TCP: esplink.TCPConfig{TxBufSize: 2048}}
 	netdev.UseNetdev(&wifi)
 	check("wifi", wifi.NetConnect(&nl.ConnectParams{Ssid: ssid, Passphrase: password}))
 	offset, err := wifi.NTP("pool.ntp.org", 5*time.Second, 3)
