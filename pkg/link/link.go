@@ -78,6 +78,7 @@ type Link struct {
 	mbody     [bodyMax]byte
 	mwire     [wireMax]byte
 	sig       [manifest.SignatureMax]byte
+	preimage  [bodyMax + 160]byte // Covers manifest.PreimageSize of a bodyMax body.
 	digest    [32]byte
 	published bool
 	uploading bool
@@ -228,7 +229,7 @@ func (l *Link) publish() error {
 	if err != nil {
 		return err
 	}
-	n, err := manifest.Sign(l.cfg.Credential, l.principal, b, l.sig[:])
+	n, err := manifest.Sign(l.cfg.Credential, l.principal, b, l.sig[:], l.preimage[:])
 	if err != nil {
 		return err
 	}

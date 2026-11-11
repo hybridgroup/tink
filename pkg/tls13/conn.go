@@ -104,6 +104,7 @@ type Conn struct {
 	nPeerScheme int
 	alpn        [255]byte
 	alpnLen     int
+	serverName  []byte // Config.ServerName, converted once for Verifier.VerifyPeer.
 
 	cv       [sizeCVPrefix + maxHashSize]byte
 	shared   [maxShared]byte
@@ -145,6 +146,7 @@ func (c *Conn) Configure(cfg Config) error {
 	}
 	c.Zeroize()
 	c.cfg = cfg
+	c.serverName = []byte(cfg.ServerName)
 	c.exch = c.exch[:0]
 	for _, g := range cfg.KeyExchanges {
 		c.exch = append(c.exch, g.NewExchanger())
@@ -671,7 +673,7 @@ func (c *Conn) handleCertificateVerify(msg []byte) error {
 		return alertError(tlsraw.AlertIllegalParameter)
 	}
 	signed := c.cvContent(serverCVContext)
-	err := c.cfg.Verifier.VerifyPeer(&c.chain, scheme, true, []byte(c.cfg.ServerName), signed, body[4:])
+	err := c.cfg.Verifier.VerifyPeer(&c.chain, scheme, true, c.serverName, signed, body[4:])
 	if err != nil {
 		return verifyError{err}
 	}

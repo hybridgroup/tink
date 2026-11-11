@@ -131,9 +131,30 @@ func (p *Packet) WildcardRequest() bool {
 	return p.tlv(TypeRequest, []byte{0, 0})
 }
 
-// Decode calls visit for each Hello, IHU, Ack, Ack Request, Update, Request
-// and Seqno Request in packet. Malformed TLVs are skipped, as wb_decode does.
+// Decode calls visit for each message in packet, see Reader.
 func Decode(packet []byte, visit func(*Message)) error {
+	var r Reader
+	if err := r.Reset(packet); err != nil {
+		return err
+	}
+	var m Message
+	for r.Next(&m) {
+		visit(&m)
+	}
+	return nil
+}
+
+// Reader walks the Hello, IHU, Ack, Ack Request, Update, Request and Seqno
+// Request TLVs of a packet. Malformed TLVs are skipped, as wb_decode does.
+type Reader struct {
+	packet   []byte
+	pos, end int
+	router   uint64
+}
+
+// Reset checks the packet header and every TLV length before any is read.
+func (r *Reader) Reset(packet []byte) error {
+	*r = Reader{}
 	if len(packet) < 4 || packet[0] != magic || packet[1] != version {
 		return ErrInvalid
 	}
@@ -153,17 +174,22 @@ func Decode(packet []byte, visit func(*Message)) error {
 		}
 		pos += 1 + int(packet[pos])
 	}
-	var router uint64
-	for pos := 4; pos < end; {
-		t := packet[pos]
-		pos++
+	r.packet, r.pos, r.end = packet, 4, end
+	return nil
+}
+
+// Next decodes the next message into m. It returns false at the end of the packet.
+func (r *Reader) Next(m *Message) bool {
+	for r.pos < r.end {
+		t := r.packet[r.pos]
+		r.pos++
 		if t == TypePad1 {
 			continue
 		}
-		n := int(packet[pos])
-		b := packet[pos+1 : pos+1+n]
-		pos += 1 + n
-		m := Message{Type: t}
+		n := int(r.packet[r.pos])
+		b := r.packet[r.pos+1 : r.pos+1+n]
+		r.pos += 1 + n
+		*m = Message{Type: t}
 		switch t {
 		case TypeHello, TypeAckRequest:
 			if n < 6 {
@@ -192,7 +218,7 @@ func Decode(packet []byte, visit func(*Message)) error {
 			}
 		case TypeRouterID:
 			if n >= 10 {
-				router = binary.BigEndian.Uint64(b[2:])
+				r.router = binary.BigEndian.Uint64(b[2:])
 			}
 			continue
 		case TypeUpdate:
@@ -202,10 +228,10 @@ func Decode(packet []byte, visit func(*Message)) error {
 			m.Interval = binary.BigEndian.Uint16(b[4:])
 			m.Seqno = binary.BigEndian.Uint16(b[6:])
 			m.Metric = binary.BigEndian.Uint16(b[8:])
-			m.Router = router
+			m.Router = r.router
 			if b[0] == 0 {
 				m.Wildcard = true
-			} else if !readPrefix(&m, b[0], b[2], b[10:]) || b[3] != 0 {
+			} else if !readPrefix(m, b[0], b[2], b[10:]) || b[3] != 0 {
 				continue // Omitted bytes are not used by Wendy peers.
 			}
 			if m.Interval == 0 {
@@ -224,7 +250,7 @@ func Decode(packet []byte, visit func(*Message)) error {
 					continue
 				}
 				m.Wildcard = true
-			} else if !readPrefix(&m, b[0], b[1], b[base:]) {
+			} else if !readPrefix(m, b[0], b[1], b[base:]) {
 				continue
 			}
 			if t == TypeSeqRequest {
@@ -238,9 +264,9 @@ func Decode(packet []byte, visit func(*Message)) error {
 		default:
 			continue
 		}
-		visit(&m)
+		return true
 	}
-	return nil
+	return false
 }
 
 // readPrefix reads an AE 1 or AE 2 prefix. Link local AE 3 is not used for routes here.

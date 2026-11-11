@@ -135,7 +135,7 @@ func TestSignVerify(t *testing.T) {
 	tenant, _ := addr.ParseUUID(litegolden.Tenant)
 	principal := addr.Principal(tenant, b.Device)
 	sig := make([]byte, 128)
-	n, err := Sign(&cred, principal, body, sig)
+	n, err := Sign(&cred, principal, body, sig, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

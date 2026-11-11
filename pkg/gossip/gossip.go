@@ -26,12 +26,20 @@ var (
 // Identify returns SHA-256 of "wendy-mesh-artifact/1\0", type, u32BE length and data,
 // as wn_gossip_identify and WendyOS netgossip.Identify compute it.
 func Identify(typ uint8, data []byte) [32]byte {
-	d := sha256.New()
-	d.Write([]byte("wendy-mesh-artifact/1\x00"))
+	var d sha256.Digest
+	var hdr [5]byte
+	return identify(&d, &hdr, typ, data)
+}
+
+var artifactDomain = []byte("wendy-mesh-artifact/1\x00")
+
+func identify(d *sha256.Digest, hdr *[5]byte, typ uint8, data []byte) (sum [32]byte) {
+	d.Init()
+	d.Write(artifactDomain)
 	n := len(data)
-	d.Write([]byte{typ, byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)})
+	*hdr = [5]byte{typ, byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)}
+	d.Write(hdr[:])
 	d.Write(data)
-	var sum [32]byte
 	d.Sum(sum[:0])
 	return sum
 }
@@ -74,12 +82,15 @@ type Session struct {
 	// next upload slot to serve, so uploads take turns one chunk at a time.
 	turn        int
 	nextRequest uint64
+	// Hash state lives here so digests do not allocate.
+	digest sha256.Digest
+	hdr    [5]byte
 }
 
 // Offer stores data to serve until expiresMS and returns its digest for Have.
 // When the Session is full it replaces the object that expires first.
 func (s *Session) Offer(data []byte, expiresMS uint64) [32]byte {
-	id := Identify(s.Type, data)
+	id := identify(&s.digest, &s.hdr, s.Type, data)
 	slot := &s.objects[0]
 	for i := range s.objects {
 		o := &s.objects[i]
@@ -198,7 +209,7 @@ func (s *Session) Receive(g *control.Gossip, nowMS uint64, emit Emit, complete C
 		return nil
 	}
 	f.used = false
-	if Identify(s.Type, f.buf) != f.digest {
+	if identify(&s.digest, &s.hdr, s.Type, f.buf) != f.digest {
 		return ErrDigest
 	}
 	complete(s.Type, f.digest, f.buf)

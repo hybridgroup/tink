@@ -44,6 +44,7 @@ type token struct {
 type Doc struct {
 	data   []byte
 	count  int
+	pos    int // Parse cursor, kept here so Parse does not allocate.
 	tokens [MaxTokens]token
 }
 
@@ -53,11 +54,11 @@ func (d *Doc) Parse(data []byte) error {
 	if len(data) == 0 {
 		return ErrParse
 	}
-	at := 0
-	if _, err := d.value(&at, 0); err != nil {
+	d.pos = 0
+	if _, err := d.value(&d.pos, 0); err != nil {
 		d.count = 0
 		return err
-	} else if at != len(data) {
+	} else if d.pos != len(data) {
 		d.count = 0
 		return ErrParse
 	}
