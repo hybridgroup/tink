@@ -88,21 +88,32 @@ type Session struct {
 }
 
 // Offer stores data to serve until expiresMS and returns its digest for Have.
-// When the Session is full it replaces the object that expires first.
+// It reuses a free buffer when one fits, else replaces the object that expires first.
 func (s *Session) Offer(data []byte, expiresMS uint64) [32]byte {
 	id := identify(&s.digest, &s.hdr, s.Type, data)
-	slot := &s.objects[0]
+	slot, fits := -1, false
 	for i := range s.objects {
 		o := &s.objects[i]
 		if o.used && o.digest == id {
 			o.expires = max(o.expires, expiresMS)
 			return id
 		}
-		if !o.used || o.expires < slot.expires {
-			slot = o
+		switch {
+		case !o.used && cap(o.data) >= len(data):
+			if !fits {
+				slot, fits = i, true
+			}
+		case fits:
+		case !o.used:
+			if slot < 0 || s.objects[slot].used {
+				slot = i
+			}
+		case slot < 0 || (s.objects[slot].used && o.expires < s.objects[slot].expires):
+			slot = i
 		}
 	}
-	*slot = object{digest: id, data: append(slot.data[:0], data...), expires: expiresMS, used: true}
+	o := &s.objects[slot]
+	*o = object{digest: id, data: append(o.data[:0], data...), expires: expiresMS, used: true}
 	return id
 }
 
