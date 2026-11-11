@@ -28,12 +28,14 @@ var (
 func Identify(typ uint8, data []byte) [32]byte {
 	var d sha256.Digest
 	var hdr [5]byte
-	return identify(&d, &hdr, typ, data)
+	var sum [32]byte
+	identify(&d, &hdr, &sum, typ, data)
+	return sum
 }
 
 var artifactDomain = []byte("wendy-mesh-artifact/1\x00")
 
-func identify(d *sha256.Digest, hdr *[5]byte, typ uint8, data []byte) (sum [32]byte) {
+func identify(d *sha256.Digest, hdr *[5]byte, sum *[32]byte, typ uint8, data []byte) [32]byte {
 	d.Init()
 	d.Write(artifactDomain)
 	n := len(data)
@@ -41,7 +43,7 @@ func identify(d *sha256.Digest, hdr *[5]byte, typ uint8, data []byte) (sum [32]b
 	d.Write(hdr[:])
 	d.Write(data)
 	d.Sum(sum[:0])
-	return sum
+	return *sum
 }
 
 // Emit sends one gossip message. It must not keep g.
@@ -82,15 +84,22 @@ type Session struct {
 	// next upload slot to serve, so uploads take turns one chunk at a time.
 	turn        int
 	nextRequest uint64
-	// Hash state lives here so digests do not allocate.
+	// Hash state and the outgoing message live here so they do not allocate.
 	digest sha256.Digest
 	hdr    [5]byte
+	sum    [32]byte
+	out    control.Gossip
+}
+
+func (s *Session) send(emit Emit, g control.Gossip) error {
+	s.out = g
+	return emit(&s.out)
 }
 
 // Offer stores data to serve until expiresMS and returns its digest for Have.
 // It reuses a free buffer when one fits, else replaces the object that expires first.
 func (s *Session) Offer(data []byte, expiresMS uint64) [32]byte {
-	id := identify(&s.digest, &s.hdr, s.Type, data)
+	id := identify(&s.digest, &s.hdr, &s.sum, s.Type, data)
 	slot, fits := -1, false
 	for i := range s.objects {
 		o := &s.objects[i]
@@ -113,7 +122,7 @@ func (s *Session) Offer(data []byte, expiresMS uint64) [32]byte {
 		}
 	}
 	o := &s.objects[slot]
-	*o = object{digest: id, data: append(o.data[:0], data...), expires: expiresMS, used: true}
+	o.digest, o.data, o.expires, o.used = id, append(o.data[:0], data...), expiresMS, true
 	return id
 }
 
@@ -128,13 +137,13 @@ func (s *Session) Forget(digest [32]byte) {
 
 // Have announces digest to the peer.
 func (s *Session) Have(emit Emit, digest [32]byte) error {
-	return emit(&control.Gossip{Op: control.OpHave, Type: s.Type, Digest: digest})
+	return s.send(emit, control.Gossip{Op: control.OpHave, Type: s.Type, Digest: digest})
 }
 
 // Gone withdraws an earlier Have.
 func (s *Session) Gone(emit Emit, digest [32]byte) error {
 	s.Forget(digest)
-	return emit(&control.Gossip{Op: control.OpGone, Type: s.Type, Digest: digest})
+	return s.send(emit, control.Gossip{Op: control.OpGone, Type: s.Type, Digest: digest})
 }
 
 func (s *Session) find(digest [32]byte, now uint64) *object {
@@ -193,7 +202,7 @@ func (s *Session) Receive(g *control.Gossip, nowMS uint64, emit Emit, complete C
 				}
 			}
 		}
-		return emit(&control.Gossip{Op: control.OpUnavailable, Type: s.Type, Digest: g.Digest, Request: g.Request})
+		return s.send(emit, control.Gossip{Op: control.OpUnavailable, Type: s.Type, Digest: g.Digest, Request: g.Request})
 	}
 	f := s.findFetch(g.Digest)
 	if f == nil || f.request != g.Request {
@@ -220,7 +229,7 @@ func (s *Session) Receive(g *control.Gossip, nowMS uint64, emit Emit, complete C
 		return nil
 	}
 	f.used = false
-	if identify(&s.digest, &s.hdr, s.Type, f.buf) != f.digest {
+	if identify(&s.digest, &s.hdr, &s.sum, s.Type, f.buf) != f.digest {
 		return ErrDigest
 	}
 	complete(s.Type, f.digest, f.buf)
@@ -231,7 +240,7 @@ func (s *Session) claim(f *fetch, now uint64, emit Emit) error {
 	s.nextRequest++
 	f.request = s.nextRequest
 	f.progress = now
-	return emit(&control.Gossip{Op: control.OpWant, Type: s.Type, Digest: f.digest, Request: f.request})
+	return s.send(emit, control.Gossip{Op: control.OpWant, Type: s.Type, Digest: f.digest, Request: f.request})
 }
 
 // Poll sends at most one DATA chunk or UNAVAILABLE and drops fetches idle
@@ -251,12 +260,12 @@ func (s *Session) Poll(nowMS uint64, emit Emit) error {
 		o := u.obj
 		if !o.used || o.expires <= nowMS {
 			u.used = false
-			return emit(&control.Gossip{Op: control.OpUnavailable, Type: s.Type, Digest: o.digest, Request: u.request})
+			return s.send(emit, control.Gossip{Op: control.OpUnavailable, Type: s.Type, Digest: o.digest, Request: u.request})
 		}
 		n := min(len(o.data)-u.offset, control.Chunk)
 		g := control.Gossip{Op: control.OpData, Type: s.Type, Digest: o.digest, Request: u.request,
 			Offset: uint32(u.offset), Total: uint32(len(o.data)), Data: o.data[u.offset : u.offset+n]}
-		if err := emit(&g); err != nil {
+		if err := s.send(emit, g); err != nil {
 			return err
 		}
 		u.offset += n

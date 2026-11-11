@@ -92,6 +92,12 @@ func (w *Writer) Text(s string) {
 	w.n += copy(w.buf[w.n:], s)
 }
 
+// TextBytes writes b as a text string.
+func (w *Writer) TextBytes(b []byte) {
+	w.head(3, uint64(len(b)))
+	w.Raw(b)
+}
+
 func (w *Writer) Bool(v bool) {
 	b := byte(0xf4)
 	if v {

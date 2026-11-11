@@ -22,7 +22,8 @@ var (
 	ErrUnsupported = errors.New("control: unsupported message")
 )
 
-// Kind returns the kind field of a control message.
+// Kind returns the kind field of a control message. It allocates in TinyGo, so
+// hot paths compare with Doc.Equal instead.
 func Kind(d *cbor.Doc) string {
 	b, err := d.Text(d.Member(0, "kind"))
 	if err != nil {
@@ -57,7 +58,7 @@ func WriteHello(w *cbor.Writer, self, peer addr.UUID) ([]byte, error) {
 // CheckHello checks a hello from peer to self, as wn_router_hello_check does.
 // Unknown additional fields are allowed.
 func CheckHello(d *cbor.Doc, self, peer addr.UUID) error {
-	if self == peer || Kind(d) != "hello" {
+	if self == peer || !d.Equal(d.Member(0, "kind"), "hello") {
 		return ErrInvalid
 	}
 	h := d.Member(0, "hello")

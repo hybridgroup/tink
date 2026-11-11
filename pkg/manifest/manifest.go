@@ -47,6 +47,8 @@ type Body struct {
 	Sensors         bool
 	// Services is a CBOR array written as is. An empty array when nil.
 	Services []byte
+	// scratch holds the formatted device, name and prefix, since locals escape in TinyGo.
+	scratch [36 + 14 + 48]byte
 }
 
 // Write encodes b as wn_manifest_services_write does.
@@ -55,10 +57,11 @@ func (b *Body) Write(w *cbor.Writer) ([]byte, error) {
 		b.Expires <= b.Issued || b.Expires-b.Issued > MaxLifetime || b.AgentPort == 0 || len(b.Name) > 255 {
 		return nil, ErrInvalid
 	}
-	device := b.Device.String()
-	name := b.Name
-	if name == "" {
-		name = "esp32-" + device[:8]
+	deviceBuf, nameBuf, prefixBuf := b.scratch[:36], b.scratch[36:50], b.scratch[50:]
+	device := b.Device.AppendString(deviceBuf[:0])
+	name := []byte(b.Name)
+	if b.Name == "" {
+		name = append(append(nameBuf[:0], "esp32-"...), device[:8]...)
 	}
 	w.Map(13)
 	w.Key("agentPort")
@@ -86,7 +89,7 @@ func (b *Body) Write(w *cbor.Writer) ([]byte, error) {
 		w.Array(0)
 	}
 	w.Key("device")
-	w.Text(device)
+	w.TextBytes(device)
 	w.Key("Expires")
 	w.Uint(uint64(b.Expires))
 	w.Key("Issued")
@@ -94,11 +97,11 @@ func (b *Body) Write(w *cbor.Writer) ([]byte, error) {
 	w.Key("platform")
 	w.Text("Lite")
 	w.Key("name")
-	w.Text(name)
+	w.TextBytes(name)
 	w.Key("route")
 	w.Map(3)
 	w.Key("prefix")
-	w.Text(b.Device.Prefix())
+	w.TextBytes(b.Device.AppendPrefix(prefixBuf[:0]))
 	w.Key("routerId")
 	w.Uint(b.RouterID)
 	w.Key("seqno")

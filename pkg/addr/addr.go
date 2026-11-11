@@ -55,20 +55,23 @@ func hexVal(c byte) int {
 	return -1
 }
 
+const hexDigits = "0123456789abcdef"
+
 // String returns the lowercase canonical form.
 func (u UUID) String() string {
-	const hex = "0123456789abcdef"
 	var b [36]byte
-	n := 0
+	return string(u.AppendString(b[:0]))
+}
+
+// AppendString appends the lowercase canonical form to dst.
+func (u UUID) AppendString(dst []byte) []byte {
 	for i, c := range u {
 		if i == 4 || i == 6 || i == 8 || i == 10 {
-			b[n] = '-'
-			n++
+			dst = append(dst, '-')
 		}
-		b[n], b[n+1] = hex[c>>4], hex[c&15]
-		n += 2
+		dst = append(dst, hexDigits[c>>4], hexDigits[c&15])
 	}
-	return string(b[:])
+	return dst
 }
 
 // Address returns the device mesh address: fd45:b891:567f followed by bytes 6..15 of the UUID.
@@ -80,12 +83,19 @@ func (u UUID) Address() (a [16]byte) {
 
 // Prefix returns the device route prefix in the form wn_prefix writes.
 func (u UUID) Prefix() string {
+	var b [48]byte
+	return string(u.AppendPrefix(b[:0]))
+}
+
+// AppendPrefix appends the device route prefix to dst.
+func (u UUID) AppendPrefix(dst []byte) []byte {
 	a := u.Address()
-	s := "fd45:b891:567f"
+	dst = append(dst, "fd45:b891:567f"...)
 	for i := 6; i < 16; i += 2 {
-		s += ":" + strconv.FormatUint(uint64(a[i])<<8|uint64(a[i+1]), 16)
+		dst = append(dst, ':')
+		dst = strconv.AppendUint(dst, uint64(a[i])<<8|uint64(a[i+1]), 16)
 	}
-	return s + "/128"
+	return append(dst, "/128"...)
 }
 
 // Principal returns spiffe://wendy.sh/tenant/<tenant>/device/<device>.
