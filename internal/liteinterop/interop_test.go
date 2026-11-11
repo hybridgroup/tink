@@ -1,8 +1,5 @@
-// Package liteinterop runs tink against wendy-lite's production mesh TLS.
-//
-// It needs the issuer_interop_success_test fixture from wendy-lite
-// components/wendy_pki/tests, built with ESP-IDF. Set LITE_MESH_TLS_FIXTURE
-// to its path, or to a command prefix such as a docker run line, see README.md.
+// Package liteinterop runs tink against wendy-lite's production C code.
+// The tests skip unless the fixtures from README.md are built.
 package liteinterop
 
 import (

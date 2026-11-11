@@ -1,13 +1,5 @@
-// Package link runs a Wendy Net leaf session over one authenticated stream
-// to its router, following the session in wendy-lite
-// components/wendy_net_peer/src/peer.c and router_session.c:
-//
-//  1. Both sides send the hello preamble and check the other's.
-//  2. The leaf describes its certificate chain and announces its signed
-//     manifest with gossip HAVE. The router fetches it with WANT.
-//  3. Babel Hello, IHU and Update keep the link and the leaf /128 route up.
-//     The route is accepted once its routerId and seqno match the manifest.
-//  4. IPv6 packets travel as fragment datagrams.
+// Package link runs a leaf session to one router, as wendy-lite components/wendy_net_peer/src
+// peer.c and router_session.c do. The steps are listed in the repository README.
 package link
 
 import (

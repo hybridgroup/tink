@@ -1,6 +1,5 @@
-// Package manifest writes, signs and reads version 4 Wendy Net device
-// manifests, as wendy-lite components/wendy_net_peer/src/protocol.c and
-// components/wendy_pki/src/wendy_pki_mesh_crypto.c do.
+// Package manifest writes, signs and reads version 4 device manifests, as wendy-lite
+// components/wendy_net_peer/src/protocol.c and wendy_pki/src/wendy_pki_mesh_crypto.c do.
 package manifest
 
 import (
@@ -115,8 +114,8 @@ func (b *Body) Write(w *cbor.Writer) ([]byte, error) {
 	return w.Finish()
 }
 
-// Digest returns the SHA-256 of the signature preimage:
-// domain | u32BE 105 | principal | body.
+// Digest returns the SHA-256 of the signature preimage, which is the domain,
+// u32BE 105, the principal and the body.
 func Digest(principal string, body []byte) ([32]byte, error) {
 	var sum [32]byte
 	if !validPrincipal(principal) || len(body) == 0 || len(body) > BodyMax {

@@ -1,7 +1,5 @@
-// Package certwire carries public certificate chains between Wendy Net
-// peers, as wendy-lite components/wendy_net_peer/src/certificate_wire.c does.
-// A chain is described by the SHA-256 of each DER part, and parts are
-// fetched in 1024 byte chunks.
+// Package certwire describes and serves certificate chains in 1024 byte chunks,
+// as wendy-lite components/wendy_net_peer/src/certificate_wire.c does.
 package certwire
 
 import (
@@ -46,7 +44,7 @@ func (c *Chain) Configure(principal string, certs lcrypto.CertChain) error {
 	return nil
 }
 
-// WriteDescriptor writes {kind: certificate, certificate: {chain: {hashes, principal}}}.
+// WriteDescriptor writes the certificate chain message with its hashes and principal.
 func (c *Chain) WriteDescriptor(w *cbor.Writer) ([]byte, error) {
 	if c.n == 0 {
 		return nil, ErrInvalid

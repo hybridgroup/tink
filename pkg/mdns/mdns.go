@@ -1,11 +1,5 @@
-// Package mdns finds Wendy Net routers on the LAN. It browses
-// _wendy-net._tcp.local with a one shot query from an ephemeral port, so
-// responders answer by unicast (RFC 6762 section 6.7) and no multicast
-// group membership is needed.
-//
-// Results are filtered as discovery_results in wendy-lite
-// components/wendy_net_peer/src/peer.c does. They are only dial hints: TLS
-// still authenticates the router.
+// Package mdns finds Wendy Net routers with a legacy unicast query, RFC 6762 section 6.7.
+// It filters results as discovery_results in wendy-lite components/wendy_net_peer/src/peer.c.
 package mdns
 
 import (

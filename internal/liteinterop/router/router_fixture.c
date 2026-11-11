@@ -1,12 +1,5 @@
-/* A wendy-lite router core behind a TCP socket, for tink's leaf session tests.
- *
- * router_fixture tenant router-uuid leaf-uuid leaf-cert.der root.der
- *   Plain TCP on loopback. The leaf key comes from leaf-cert.der.
- * router_tls_fixture tenant router-uuid leaf-uuid root.der key.der cert.der port
- *   Lite's mesh TLS server on 0.0.0.0:port. The leaf key comes from TLS.
- *
- * Prints the port, then "route active" once wnr_lookup authorizes the leaf /128,
- * and serves 10 s more. */
+/* A wendy-lite router core behind a TCP socket for tink's leaf session tests.
+ * Usage and output are described in ../README.md. */
 #include "wendy_net_control.h"
 #include "wendy_net_router.h"
 #include "wendy_pki_crypto.h"
@@ -232,7 +225,7 @@ int main(int argc, char **argv)
         int t = pki_tls_net_begin(&stream, true, tenant, self, &identity,
                                   (struct wendy_conf_span){trust, der_n}, false, &tls);
         int64_t until = esp_timer_get_time() + INT64_C(20000000);
-        /* As issuer_interop_success_test: 0 is done, -2/-3 wait, positive is progress. */
+        /* As in issuer_interop_success_test, 0 is done, -2/-3 wait and positive is progress. */
         while (!t) {
             t = pki_tls_net_advance(tls, false, leaf);
             if (!t)

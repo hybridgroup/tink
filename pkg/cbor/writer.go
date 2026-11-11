@@ -1,7 +1,5 @@
-// Package cbor is the compact deterministic CBOR subset used by Wendy Net:
-// definite maps and arrays, text, bytes, unsigned integers and booleans.
-// Callers write map keys in a fixed order. It matches wendy-lite
-// components/wendy_net_common/src/binary.c and components/wendy_net_peer/src/binary.c.
+// Package cbor is the deterministic CBOR subset of Wendy Net, as wendy-lite
+// components/wendy_net_common/src/binary.c and wendy_net_peer/src/binary.c use it.
 package cbor
 
 import "errors"

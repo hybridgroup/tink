@@ -1,8 +1,5 @@
-// Package babel is the minimal Babel (RFC 8966) speaker a Wendy Net leaf
-// needs on its one link. The codec follows wendy-lite components/wendy_babel/src/wire.c.
-//
-// A leaf announces only its own /128 and, like Lite's local_only engine,
-// ignores routes from the neighbour: the link is its default route.
+// Package babel is the minimal RFC 8966 speaker of a leaf. It announces only its /128 and
+// ignores routes, like Lite's local_only engine. The codec follows wendy_babel/src/wire.c.
 package babel
 
 import (
@@ -47,7 +44,7 @@ type Message struct {
 	Router   uint64
 	Prefix   [16]byte
 	Bits     uint8
-	// Family of Prefix: 6, 4, or 0 for none.
+	// Family of Prefix is 6, 4, or 0 for none.
 	Family uint8
 }
 

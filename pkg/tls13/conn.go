@@ -31,8 +31,7 @@ type Config struct {
 	ServerName string
 	// ALPN is the one protocol offered. The server must select it.
 	ALPN string
-	// MaxRecord bounds the plaintext of records accepted from the server,
-	// tlsraw.MaxPlaintext if zero. Larger records fail with record_overflow.
+	// MaxRecord bounds received record plaintext, tlsraw.MaxPlaintext if zero.
 	// Lite sends at most 4096, the ESP-IDF default MBEDTLS_SSL_OUT_CONTENT_LEN.
 	MaxRecord int
 }

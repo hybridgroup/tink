@@ -24,9 +24,7 @@ import (
 )
 
 // TestLeafSessionAgainstLite runs pkg/link against Lite's router core.
-// router_fixture verifies our certificate with wendy_pki_mesh_chain, fetches
-// the manifest by gossip, accepts it with wnr_manifest and passes once
-// wnr_lookup authorizes the leaf /128 from our Babel route.
+// It passes once Lite's wnr_lookup authorizes the leaf /128.
 func TestLeafSessionAgainstLite(t *testing.T) {
 	fixture := os.Getenv("LITE_ROUTER_FIXTURE")
 	if fixture == "" {
