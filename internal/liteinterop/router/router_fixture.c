@@ -303,6 +303,13 @@ int main(int argc, char **argv)
     wn_address(leaf_uuid, leaf_address);
     size_t have = 0;
     bool fetching = false, accepted = false, active = false;
+    /* ROUTER_SOAK_SECONDS keeps the session up that long after activation and logs status. */
+    const char *soak_env = getenv("ROUTER_SOAK_SECONDS");
+    int64_t soak_us = soak_env ? INT64_C(1000000) * atoll(soak_env) : 0;
+    int64_t start_us = esp_timer_get_time(), next_status = 0, last_babel = 0;
+    uint64_t request = 0;
+    uint8_t last_digest[32] = {0};
+    unsigned manifests = 0, babel_packets = 0, routes_lost = 0;
     int64_t deadline = esp_timer_get_time() + INT64_C(45000000);
     while (esp_timer_get_time() < deadline) {
         if (readable()) {
@@ -314,6 +321,8 @@ int main(int argc, char **argv)
             full_read(body, size);
             if (h[0] == 2 && size && body[0] == 2) {
                 r = wnr_receive(&core, link, body + 1, size - 1, wall_ms(), esp_timer_get_time());
+                babel_packets++;
+                last_babel = esp_timer_get_time();
                 if (r < 0)
                     fprintf(stderr, "babel receive %d\n", r);
             } else if (h[0] == 1) {
@@ -331,13 +340,13 @@ int main(int argc, char **argv)
                     if (wn_gossip_read_view(c, cn, &m))
                         die("gossip read", 0);
                     char out[WN_CONTROL_MAX];
-                    if (m.op == WG_HAVE && !fetching && !accepted) {
-                        struct wg_message want = {.id = m.id, .op = WG_WANT, .request = 1};
+                    if (m.op == WG_HAVE && !fetching && memcmp(m.id.hash, last_digest, 32)) {
+                        struct wg_message want = {.id = m.id, .op = WG_WANT, .request = ++request};
                         int wn = wn_gossip_write(&want, out, sizeof out);
                         frame(1, out, (size_t)wn);
                         fetching = true;
                         have = 0;
-                    } else if (m.op == WG_DATA && fetching && m.request == 1) {
+                    } else if (m.op == WG_DATA && fetching && m.request == request) {
                         if (m.offset != have || m.total > sizeof artifact)
                             die("gossip offset", (int)m.offset);
                         memcpy(artifact + have, m.data, m.size);
@@ -349,10 +358,13 @@ int main(int argc, char **argv)
                             if (r || memcmp(digest, m.id.hash, 32))
                                 die("gossip digest", r);
                             r = wnr_manifest(&core, artifact, have, wall_ms(), esp_timer_get_time());
-                            printf("manifest accept result %d\n", r);
+                            printf("manifest accept result %d at %llds\n", r,
+                                   (long long)((esp_timer_get_time() - start_us) / 1000000));
                             fflush(stdout);
                             if (r)
                                 die("wnr_manifest", r);
+                            memcpy(last_digest, m.id.hash, 32);
+                            manifests++;
                             accepted = true;
                         }
                     }
@@ -364,16 +376,37 @@ int main(int argc, char **argv)
         if ((r = wnr_tick(&core, wall_ms(), esp_timer_get_time())) < 0)
             die("wnr_tick", r);
         struct wb_route route;
-        if (!active && wnr_lookup(&core, leaf_address, esp_timer_get_time(), &route)) {
+        int64_t now = esp_timer_get_time();
+        bool found = wnr_lookup(&core, leaf_address, now, &route);
+        if (found && !active) {
             printf("route active router=%016llx seqno=%u metric=%u\n",
                    (unsigned long long)route.router, route.seqno, route.metric);
             fflush(stdout);
             /* Keep serving so the leaf also sees the link up. */
-            active = true;
-            deadline = esp_timer_get_time() + INT64_C(10000000);
+            if (!soak_us || !next_status)
+                deadline = now + (soak_us ? soak_us : INT64_C(10000000));
+            if (!next_status)
+                next_status = now;
+        } else if (!found && active) {
+            routes_lost++;
+            printf("route lost at %llds\n", (long long)((now - start_us) / 1000000));
+            fflush(stdout);
+        }
+        active = found;
+        if (soak_us && next_status && now >= next_status) {
+            printf("status %llds route=%s manifests=%u babel=%u last_babel=%llds_ago lost=%u\n",
+                   (long long)((now - start_us) / 1000000), active ? "active" : "missing", manifests,
+                   babel_packets, (long long)((now - last_babel) / 1000000), routes_lost);
+            fflush(stdout);
+            next_status = now + INT64_C(30000000);
         }
     }
-    if (!active)
+    if (!next_status)
         die("route never became active", accepted);
+    if (soak_us) {
+        printf("soak done manifests=%u lost=%u route=%s\n", manifests, routes_lost,
+               active ? "active" : "missing");
+        return routes_lost || !active || manifests < 2;
+    }
     return 0;
 }

@@ -119,7 +119,8 @@ func session(tenant, self addr.UUID) error {
 	if err := conn.Handshake(); err != nil {
 		return err
 	}
-	tcp.SetDeadline(time.Time{})
+	// lneto StackBerkeley ignores a zero deadline instead of clearing it, so push it far out.
+	tcp.SetDeadline(time.Now().Add(100 * 365 * 24 * time.Hour))
 	heap("tls done")
 	router, err := addr.ParseUUID(verifier.Device())
 	if err != nil {
@@ -132,7 +133,8 @@ func session(tenant, self addr.UUID) error {
 		RouterID: binary.BigEndian.Uint64(self[8:]),
 		NowMS:    func() int64 { return time.Now().UnixMilli() },
 		OnPacket: func(p []byte) { println("packet", len(p), "bytes") },
-		Log:      func(msg string) { println(msg) },
+		// Heap after each link event, such as the republish every 300 s, shows leaks over time.
+		Log: func(msg string) { heap(msg) },
 	})
 	if err != nil {
 		return err
