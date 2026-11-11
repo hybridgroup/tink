@@ -2,13 +2,24 @@
 
 <p align="center"><img src="images/tink-gopher.png" alt="tink gopher" width="400"></p>
 
-Go and TinyGo packages for joining a Wendy Net mesh.
+Go and TinyGo packages for tiny devices to join [wendy-net](https://docs.wendy.dev/latest/guides/wendy-net/) wireless mesh networks based on the [Wendy](https://wendy.dev/) platform for robotics and physical AI.
 
-## Layout
+Runs on boards with Espressif `esp32c3` and `esp32s3` processors.
 
-- `pkg/` library packages. Pure Go, testable on the host.
-- `examples/` TinyGo programs for ESP32 boards using espradio.
-- `cmd/tink/` command line tools built on `pkg/`.
+## Quick Start
+
+You must have the latest development version of TinyGo installed.
+
+You also must have the needed Wendy device credentials to authenticate to wendy-net.
+
+```
+tinygo flash -target xiao-esp32c3 -tags lcrypto_nop384,lcrypto_noed25519,lcrypto_norsa -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
+```
+
+## Examples
+
+- wendynet-display
+- wendynet-wifi
 
 ## Development
 
@@ -35,6 +46,6 @@ tinygo test ./pkg/...
 3. Babel Hello, IHU and Update keep the link and the leaf /128 route up. Lite accepts the route once its routerId and seqno match the manifest.
 4. IPv6 packets travel as fragment datagrams.
 
-## Testing against Lite
+## Testing against wendy-lite
 
 `internal/liteinterop` runs tink against wendy-lite's C code built for the host. See its README.md.
