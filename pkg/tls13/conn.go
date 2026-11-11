@@ -191,14 +191,13 @@ func (c *Conn) Handshake() error {
 		return c.fail(err)
 	}
 	c.state = stateConnected
+	// The peer chain is only needed by Verifier, so give its buffer back for the session.
+	c.certBuf, c.chain = nil, peerChain{}
 	return nil
 }
 
 // ALPN returns the negotiated protocol.
 func (c *Conn) ALPN() string { return string(c.alpn[:c.alpnLen]) }
-
-// PeerChain returns the server chain. It is valid until the next Open.
-func (c *Conn) PeerChain() lcrypto.CertChain { return &c.chain }
 
 // Read reads application data. It returns io.EOF after the server's close_notify.
 func (c *Conn) Read(p []byte) (int, error) {

@@ -133,3 +133,39 @@ func TestIdle(t *testing.T) {
 		t.Fatal("idle fetch kept")
 	}
 }
+
+// TestRepublishReusesBuffer checks that forgetting a manifest and offering
+// its successor of the same size allocates nothing, as a leaf does every 300 s.
+func TestRepublishReusesBuffer(t *testing.T) {
+	s := &Session{Type: 1}
+	body := bytes.Repeat([]byte{1}, 600)
+	id := s.Offer(body, 1000)
+	allocs := testing.AllocsPerRun(20, func() {
+		s.Forget(id)
+		body[0]++
+		id = s.Offer(body, 1000)
+	})
+	if allocs != 0 {
+		t.Fatalf("%v allocations per republish", allocs)
+	}
+	used := 0
+	for i := range s.objects {
+		if s.objects[i].used {
+			used++
+		}
+	}
+	if used != 1 {
+		t.Fatalf("%d objects in use", used)
+	}
+}
+
+func TestOfferEvictsEarliest(t *testing.T) {
+	s := &Session{Type: 1}
+	for i := range MaxObjects {
+		s.Offer([]byte{byte(i)}, uint64(100+i))
+	}
+	newest := s.Offer([]byte{9}, 500)
+	if s.find(Identify(1, []byte{0}), 0) != nil || s.find(newest, 0) == nil {
+		t.Fatal("did not replace the object that expires first")
+	}
+}
