@@ -8,3 +8,5 @@ require (
 	tinygo.org/x/drivers v0.37.0
 	tinygo.org/x/espradio v0.5.1-0.20261111151050-d9e867e06617
 )
+
+replace github.com/soypat/lcrypto => github.com/hybridgroup/lcrypto v0.0.0-20261111153855-7cc0237cdbd6
