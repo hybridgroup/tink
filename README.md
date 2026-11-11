@@ -1,5 +1,7 @@
 # tink
 
+[![CI](https://github.com/hybridgroup/tink/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/hybridgroup/tink/actions/workflows/ci.yaml) [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/hybridgroup/tink/badges/coverage.json)](https://github.com/hybridgroup/tink/actions/workflows/ci.yaml)
+
 <p align="center"><img src="images/tink-gopher.png" alt="tink gopher" width="400"></p>
 
 Go and TinyGo packages for tiny devices to join [wendy-net](https://docs.wendy.dev/latest/guides/wendy-net/) wireless mesh networks based on the [Wendy](https://wendy.dev/) platform for robotics and physical AI.
