@@ -51,26 +51,30 @@ type Message struct {
 	Family uint8
 }
 
-// Packet builds one Babel packet.
+// Packet builds one Babel packet. buf[0] holds DatagramKind so the packet
+// can be sent as a carrier datagram without a copy.
 type Packet struct {
-	buf [PacketMax]byte
+	buf [1 + PacketMax]byte
 	n   int
 }
 
 // Reset starts an empty packet.
 func (p *Packet) Reset() {
-	p.buf[0], p.buf[1] = magic, version
-	p.n = 4
+	p.buf[0], p.buf[1], p.buf[2] = DatagramKind, magic, version
+	p.n = 5
 }
 
 // Bytes returns the packet with its body length set.
-func (p *Packet) Bytes() []byte {
-	binary.BigEndian.PutUint16(p.buf[2:], uint16(p.n-4))
+func (p *Packet) Bytes() []byte { return p.Datagram()[1:] }
+
+// Datagram returns the packet prefixed with DatagramKind, ready for the carrier.
+func (p *Packet) Datagram() []byte {
+	binary.BigEndian.PutUint16(p.buf[3:], uint16(p.n-5))
 	return p.buf[:p.n]
 }
 
 // Empty reports whether no TLV was added.
-func (p *Packet) Empty() bool { return p.n <= 4 }
+func (p *Packet) Empty() bool { return p.n <= 5 }
 
 func (p *Packet) tlv(typ uint8, body []byte) bool {
 	if len(body) > 255 || p.n+2+len(body) > len(p.buf) {

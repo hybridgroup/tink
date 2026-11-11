@@ -61,13 +61,15 @@ func main() {
 	self, _ := addr.ParseUUID(deviceID)
 	println("device", deviceID)
 
-	wifi := esplink.Esplink{}
+	// Half the default receive ring leaves heap for TLS and the session.
+	wifi := esplink.Esplink{RxRingSize: 8}
 	netdev.UseNetdev(&wifi)
 	check("wifi", wifi.NetConnect(&nl.ConnectParams{Ssid: ssid, Passphrase: password}))
 	offset, err := wifi.NTP("pool.ntp.org", 5*time.Second, 3)
 	check("ntp", err)
 	runtime.AdjustTimeOffset(int64(offset))
 	println("time", time.Now().String())
+	heap("after ntp")
 
 	check("credential", cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{deviceCert}, Key: deviceKey}))
 	check("tls config", conn.Configure(tls13.Config{
@@ -77,6 +79,7 @@ func main() {
 		Credential:   &cred,
 		Verifier:     &verifier,
 		ALPN:         "wendy-local-mesh-ble/2",
+		MaxRecord:    4096,
 	}))
 
 	for {
@@ -112,12 +115,18 @@ func session(tenant, self addr.UUID) error {
 		return err
 	}
 	defer tcp.Close()
+	heap("dialed")
 	if err := conn.Open(tcp); err != nil {
 		return err
 	}
+	heap("tls open")
+	// A peer that stalls the handshake must not hang the leaf.
+	tcp.SetDeadline(time.Now().Add(30 * time.Second))
 	if err := conn.Handshake(); err != nil {
 		return err
 	}
+	tcp.SetDeadline(time.Time{})
+	heap("tls done")
 	router, err := addr.ParseUUID(verifier.Device())
 	if err != nil {
 		return err
@@ -134,7 +143,7 @@ func session(tenant, self addr.UUID) error {
 	if err != nil {
 		return err
 	}
-	go report(l)
+	heap("link ready")
 	return l.Run(&conn, nil)
 }
 
@@ -173,13 +182,10 @@ func discover(tenant, self addr.UUID) (mdns.Candidate, error) {
 
 var errNoRouter = errors.New("no router found with mDNS")
 
-func report(l *link.Link) {
-	for was := false; ; time.Sleep(time.Second) {
-		if up := l.Up(); up != was {
-			println("babel link up:", up)
-			was = up
-		}
-	}
+func heap(stage string) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	println("heap", stage, "in use", m.HeapInuse, "free", m.HeapIdle, "total", m.HeapSys)
 }
 
 func check(what string, err error) {

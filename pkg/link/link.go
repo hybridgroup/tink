@@ -35,6 +35,12 @@ const (
 	// Lifetime is the manifest lease, the largest Lite accepts.
 	Lifetime = manifest.MaxLifetime
 	tick     = 250 * time.Millisecond
+	// A leaf manifest is about 400 bytes, far below manifest.BodyMax.
+	bodyMax = 1024
+	wireMax = bodyMax + manifest.SignatureMax + 256
+	// readMax holds the control frames Lite writes, up to WN_CONTROL_MAX.
+	// Larger frames are skipped by carrier.ReadFrame.
+	readMax = 4 + control.ControlMax
 )
 
 var (
@@ -77,8 +83,8 @@ type Link struct {
 	gossip    gossip.Session
 	chain     certwire.Chain
 	out       [control.ControlMax]byte
-	mbody     [manifest.BodyMax]byte
-	mwire     [manifest.WireMax]byte
+	mbody     [bodyMax]byte
+	mwire     [wireMax]byte
 	sig       [manifest.SignatureMax]byte
 	digest    [32]byte
 	published bool
@@ -88,7 +94,7 @@ type Link struct {
 	frag      [packet.DatagramMax]byte
 	fragID    uint32
 	pkt       babel.Packet
-	dgram     [1 + babel.PacketMax]byte
+	wasUp     bool
 
 	// Reader side.
 	in    []byte
@@ -121,7 +127,7 @@ func New(cfg Config) (*Link, error) {
 	}
 	l.gossip.Type = control.TypeManifest
 	l.speaker = babel.Speaker{Router: cfg.RouterID, Prefix: cfg.Self.Address(), Seqno: 1}
-	l.in = make([]byte, carrier.MaxFrameBuffer)
+	l.in = make([]byte, readMax)
 	return l, nil
 }
 
@@ -272,6 +278,14 @@ func (l *Link) poll() error {
 	if err := l.flushBabel(now); err != nil {
 		return err
 	}
+	if up := l.speaker.Up(now); up != l.wasUp {
+		l.wasUp = up
+		if up {
+			l.logf("babel link up")
+		} else {
+			l.logf("babel link down")
+		}
+	}
 	// A few DATA chunks per tick keep Babel timely, as wg_poll does.
 	l.uploading = l.uploading || l.gossip.Busy()
 	for range 4 {
@@ -303,9 +317,7 @@ func (l *Link) flushBabel(now int64) error {
 }
 
 func (l *Link) sendBabel() error {
-	l.dgram[0] = babel.DatagramKind
-	n := 1 + copy(l.dgram[1:], l.pkt.Bytes())
-	return l.framer.WriteDatagram(l.rw, l.dgram[:n])
+	return l.framer.WriteDatagram(l.rw, l.pkt.Datagram())
 }
 
 // Send sends an IPv6 packet from this device into the mesh.

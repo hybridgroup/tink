@@ -31,12 +31,17 @@ type Config struct {
 	ServerName string
 	// ALPN is the one protocol offered. The server must select it.
 	ALPN string
+	// MaxRecord bounds the plaintext of records accepted from the server,
+	// tlsraw.MaxPlaintext if zero. Larger records fail with record_overflow.
+	// Lite sends at most 4096, the ESP-IDF default MBEDTLS_SSL_OUT_CONTENT_LEN.
+	MaxRecord int
 }
 
 const (
-	sizeHandshakeBuf = 8192
-	sizeCertBuf      = 8192
-	sizeWriteBuf     = 8192
+	// Sized for P-256 device chains of a few certificates.
+	sizeHandshakeBuf = 4096
+	sizeCertBuf      = 4096
+	sizeWriteBuf     = 2048
 	maxWritePlain    = sizeWriteBuf - tlsraw.SizeHeaderRecord - 1 - tlsraw.SizeAEADTag
 	maxPeerCerts     = 8
 	maxShared        = 32
@@ -119,6 +124,11 @@ func (c *Conn) Configure(cfg Config) error {
 		return errNoConfig
 	} else if len(cfg.ALPN) > 255 || len(cfg.ServerName) > 255 {
 		return errNoConfig
+	} else if cfg.MaxRecord < 0 || cfg.MaxRecord > tlsraw.MaxPlaintext || (cfg.MaxRecord > 0 && cfg.MaxRecord < 512) {
+		return errNoConfig
+	}
+	if cfg.MaxRecord == 0 {
+		cfg.MaxRecord = tlsraw.MaxPlaintext
 	}
 	for _, s := range cfg.Suites {
 		if s.ID == 0 || s.NewAEAD == nil || s.NewHash == nil || s.KeyLen <= 0 || s.KeyLen > maxKeyLen {
@@ -152,7 +162,8 @@ func (c *Conn) Open(rw io.ReadWriter) error {
 		return lneto.ErrBadState
 	}
 	c.Zeroize()
-	c.rbuf = reuse(c.rbuf, tlsraw.MaxRecord)
+	// The ciphertext adds the inner content type, padding and tag, RFC 8446 5.2.
+	c.rbuf = reuse(c.rbuf, tlsraw.SizeHeaderRecord+c.cfg.MaxRecord+256)
 	c.hbuf = reuse(c.hbuf, sizeHandshakeBuf)
 	c.wbuf = reuse(c.wbuf, sizeWriteBuf)
 	c.certBuf = reuse(c.certBuf, sizeCertBuf)
@@ -876,7 +887,7 @@ func (c *Conn) readRecord() (tlsraw.ContentType, []byte, error) {
 			return 0, nil, err
 		}
 		n := int(binary.BigEndian.Uint16(hdr[3:5]))
-		if n > tlsraw.MaxCiphertext {
+		if n > tlsraw.MaxCiphertext || n > len(c.rbuf)-tlsraw.SizeHeaderRecord {
 			return 0, nil, alertError(tlsraw.AlertRecordOverflow)
 		}
 		rec := c.rbuf[:tlsraw.SizeHeaderRecord+n]
@@ -904,7 +915,7 @@ func (c *Conn) readRecord() (tlsraw.ContentType, []byte, error) {
 		case ct != tlsraw.ContentTypeHandshake && ct != tlsraw.ContentTypeAlert:
 			return 0, nil, alertError(tlsraw.AlertUnexpectedMessage)
 		}
-		if len(content) > tlsraw.MaxPlaintext {
+		if len(content) > c.cfg.MaxRecord {
 			return 0, nil, alertError(tlsraw.AlertRecordOverflow)
 		}
 		return ct, content, nil

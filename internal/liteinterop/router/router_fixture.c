@@ -15,7 +15,9 @@
 #include "wendy_cert_bundle.h"
 #include "wendy_pki_internal.h"
 #include "wendy_pki_parsed_identity.h"
+#include <errno.h>
 #include <signal.h>
+#include <sys/time.h>
 #endif
 #include <arpa/inet.h>
 #include <poll.h>
@@ -48,8 +50,21 @@ static void die(const char *what, int r)
 static wendy_pki_connection *tls;
 bool wendy_pki_reset_in_progress(void) { return false; }
 ssize_t wendy_test_send(int s, const void *data, size_t n, int flags) { return send(s, data, n, flags); }
-static ssize_t sock_read(void *ctx, void *data, size_t n) { return recv(*(int *)ctx, data, n, 0); }
-static ssize_t sock_write(void *ctx, const void *data, size_t n) { return send(*(int *)ctx, data, n, 0); }
+static ssize_t sock_read(void *ctx, void *data, size_t n)
+{
+    ssize_t r = recv(*(int *)ctx, data, n, 0);
+    return r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -2 : r;
+}
+static ssize_t sock_write(void *ctx, const void *data, size_t n)
+{
+    ssize_t r = send(*(int *)ctx, data, n, 0);
+    return r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) ? -3 : r;
+}
+static void receive_timeout(int s, long seconds)
+{
+    struct timeval tv = {.tv_sec = seconds};
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+}
 static int sock_wait(void *ctx, bool writing, int64_t deadline)
 {
     struct pollfd p = {.fd = *(int *)ctx, .events = writing ? POLLOUT : POLLIN};
@@ -182,9 +197,6 @@ int main(int argc, char **argv)
         die("listen", 0);
     printf("%u\n", ntohs(a.sin_port));
     fflush(stdout);
-    fd = accept(listener, NULL, NULL);
-    if (fd < 0)
-        die("accept", fd);
 #if ROUTER_TLS
     /* Same setup as wendy-lite components/wendy_pki/tests/issuer_interop_success_test.c. */
     wendy_net_memory_t memory = WENDY_NET_MEMORY_INITIALIZER;
@@ -194,32 +206,61 @@ int main(int argc, char **argv)
     size_t der_n = 0;
     if (wendy_cert_bundle_measure(root, root_n, &der_n))
         die("roots", 0);
-    uint8_t *trust = calloc(1, der_n + 1);
-    if (wendy_cert_bundle_import(root, root_n, trust, der_n, &der_n))
+    uint8_t *trust_der = calloc(1, der_n + 1);
+    if (wendy_cert_bundle_import(root, root_n, trust_der, der_n, &der_n))
         die("roots", 1);
     static mbedtls_x509_crt source;
     mbedtls_x509_crt_init(&source);
     if (pki_parse_certificate_bundle(&source, own, own_n, false))
         die("certificate", 0);
-    struct pki_tls_owned_identity identity = {.key = key, .key_size = key_n, .trust = trust,
-                                              .trust_capacity = der_n + 1, .verify_at = time(NULL),
-                                              .read_der = read_der, .der_context = &source};
-    struct wendy_pki_stream stream = {.context = &fd, .read = sock_read, .write = sock_write,
-                                      .wait = sock_wait};
-    int t = pki_tls_net_begin(&stream, true, tenant, self, &identity,
-                              (struct wendy_conf_span){trust, der_n}, false, &tls);
-    if (t)
-        die("pki_tls_net_begin", t);
-    for (int steps = 0; (t = pki_tls_net_advance(tls, false, leaf)); steps++) {
-        if (t < 0 && t != -2 && t != -3)
-            die("mesh TLS handshake", t);
-        if (steps > 100000)
-            die("mesh TLS handshake steps", steps);
-        if (t == -2 || t == -3)
-            sock_wait(&fd, t == -3, esp_timer_get_time() + 10000000);
+    /* A leaf may abandon a connection mid dial, so serve the next one after a stalled handshake. */
+    for (;;) {
+        fd = accept(listener, NULL, NULL);
+        if (fd < 0)
+            die("accept", fd);
+        receive_timeout(fd, 1);
+        /* pki_tls_net_begin consumes the key and trust copies on every return. */
+        uint8_t *k = malloc(key_n), *trust = calloc(1, der_n + 1);
+        memcpy(k, key, key_n);
+        memcpy(trust, trust_der, der_n);
+        struct pki_tls_owned_identity identity = {.key = k, .key_size = key_n, .trust = trust,
+                                                  .trust_capacity = der_n + 1, .verify_at = time(NULL),
+                                                  .read_der = read_der, .der_context = &source};
+        struct wendy_pki_stream stream = {.context = &fd, .read = sock_read, .write = sock_write,
+                                          .wait = sock_wait};
+        tls = NULL;
+        int t = pki_tls_net_begin(&stream, true, tenant, self, &identity,
+                                  (struct wendy_conf_span){trust, der_n}, false, &tls);
+        int64_t until = esp_timer_get_time() + INT64_C(20000000);
+        /* As issuer_interop_success_test: 0 is done, -2/-3 wait, positive is progress. */
+        while (!t) {
+            t = pki_tls_net_advance(tls, false, leaf);
+            if (!t)
+                break;
+            if (t < 0 && t != -2 && t != -3)
+                break;
+            if (esp_timer_get_time() > until) {
+                t = -9;
+                break;
+            }
+            if (t == -2 || t == -3)
+                sock_wait(&fd, t == -3, esp_timer_get_time() + 1000000);
+            t = 0;
+        }
+        if (!t)
+            break;
+        fprintf(stderr, "handshake failed (%d), waiting for the next connection\n", t);
+        if (tls)
+            wendy_pki_close(tls);
+        close(fd);
     }
+    receive_timeout(fd, 0);
     printf("tls ok alpn=%s\n", mbedtls_ssl_get_alpn_protocol(&tls->ssl));
     fflush(stdout);
+#else
+    fd = accept(listener, NULL, NULL);
+    if (fd < 0)
+        die("accept", fd);
 #endif
 
     /* Hello preamble both ways, as peer.c setup_hello does. */

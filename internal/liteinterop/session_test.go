@@ -160,7 +160,7 @@ func TestTLSLeafSessionAgainstLite(t *testing.T) {
 	var c tls13.Conn
 	c.Configure(tls13.Config{Rand: rand.Reader, Suites: []tls13.Suite{tls13.AES128GCMSHA256()},
 		KeyExchanges: []tls13.KeyExchange{tls13.X25519(), tls13.P256()},
-		Credential:   &cred, Verifier: &v, ALPN: "wendy-local-mesh-ble/2"})
+		Credential:   &cred, Verifier: &v, ALPN: "wendy-local-mesh-ble/2", MaxRecord: 4096})
 	c.Open(raw)
 	if err := c.Handshake(); err != nil {
 		t.Fatalf("handshake: %v\n%s", err, stderr.String())
