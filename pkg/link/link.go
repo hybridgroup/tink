@@ -88,6 +88,10 @@ type Link struct {
 	fragID    uint32
 	pkt       babel.Packet
 	wasUp     bool
+	// Reused for every message so the session does not allocate.
+	w    cbor.Writer
+	body manifest.Body
+	gin  control.Gossip
 
 	// Reader side.
 	in    []byte
@@ -194,9 +198,8 @@ func (l *Link) hello() error {
 }
 
 func (l *Link) writer() *cbor.Writer {
-	var w cbor.Writer
-	w.Reset(l.out[:], control.ControlMax)
-	return &w
+	l.w.Reset(l.out[:], control.ControlMax)
+	return &l.w
 }
 
 func (l *Link) sendControl(b []byte, err error) error {
@@ -219,13 +222,13 @@ func (l *Link) publish() error {
 	}
 	// Wall clock revisions only grow across restarts, which Lite requires.
 	l.revision = max(l.revision+1, uint64(now))
-	body := manifest.Body{
+	l.body = manifest.Body{
 		Device: l.cfg.Self, RouterID: l.cfg.RouterID, Seqno: l.speaker.Seqno, Revision: l.revision,
 		Issued: now, Expires: expires, AgentPort: l.cfg.AgentPort, Name: l.cfg.Name,
 	}
-	var w cbor.Writer
+	w := &l.w
 	w.Reset(l.mbody[:], 0)
-	b, err := body.Write(&w)
+	b, err := l.body.Write(w)
 	if err != nil {
 		return err
 	}
@@ -234,7 +237,7 @@ func (l *Link) publish() error {
 		return err
 	}
 	w.Reset(l.mwire[:], 0)
-	wire, err := manifest.WriteWire(&w, l.principal, b, l.sig[:n])
+	wire, err := manifest.WriteWire(w, l.principal, b, l.sig[:n])
 	if err != nil {
 		return err
 	}
@@ -316,7 +319,7 @@ func (l *Link) sendBabel() error {
 // Send sends an IPv6 packet from this device into the mesh.
 func (l *Link) Send(p []byte) error {
 	self := l.cfg.Self.Address()
-	if len(p) < 40 || string(p[8:24]) != string(self[:]) || !meshAddress(p[24:40]) {
+	if len(p) < 40 || !sameAddress(p[8:24], &self) || !meshAddress(p[24:40]) {
 		return ErrAdmit
 	}
 	l.mu.Lock()
@@ -332,6 +335,11 @@ func (l *Link) Send(p []byte) error {
 		}
 	}
 	return nil
+}
+
+// sameAddress compares without the string conversion TinyGo allocates for.
+func sameAddress(a []byte, b *[16]byte) bool {
+	return len(a) == 16 && [16]byte(a) == *b
 }
 
 // meshAddress matches the device and operator ULAs, as wn_ip_admits does.
@@ -374,7 +382,7 @@ func (l *Link) handleDatagram(d []byte) error {
 			return err // Lite closes the link on a bad fragment.
 		}
 		self := l.cfg.Self.Address()
-		if p != nil && string(p[24:40]) == string(self[:]) && meshAddress(p[8:24]) && l.cfg.OnPacket != nil {
+		if p != nil && sameAddress(p[24:40], &self) && meshAddress(p[8:24]) && l.cfg.OnPacket != nil {
 			l.cfg.OnPacket(p)
 		}
 	}
@@ -388,10 +396,11 @@ func (l *Link) handleControl(b []byte) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	switch control.Kind(d) {
-	case "gossip":
-		var g control.Gossip
-		switch err := control.ReadGossip(d, &g); err {
+	kind := d.Member(0, "kind")
+	switch {
+	case d.Equal(kind, "gossip"):
+		g := &l.gin
+		switch err := control.ReadGossip(d, g); err {
 		case nil:
 		case control.ErrUnsupported:
 			return nil
@@ -402,8 +411,8 @@ func (l *Link) handleControl(b []byte) error {
 		if g.Op == control.OpHave {
 			return nil
 		}
-		return l.gossip.Receive(&g, uint64(l.mono()), l.emit, nil)
-	case "certificate":
+		return l.gossip.Receive(g, uint64(l.mono()), l.emit, nil)
+	case d.Equal(kind, "certificate"):
 		kind, obj, err := certwire.Parse(d)
 		if err != nil || kind != "request" {
 			return nil
@@ -413,19 +422,21 @@ func (l *Link) handleControl(b []byte) error {
 			return nil
 		}
 		return l.sendControl(l.chain.Answer(l.writer(), q))
-	case "manifest-request":
-		p, _ := d.Text(d.Member(0, "principal"))
-		if string(p) == l.principal && l.published {
+	case d.Equal(kind, "manifest-request"):
+		pt := d.Member(0, "principal")
+		p, _ := d.Text(pt)
+		if d.Equal(pt, l.principal) && l.published {
 			return l.gossip.Have(l.emit, l.digest)
 		}
 		return l.sendControl(control.WriteMissing(l.writer(), string(p), true))
-	case "identity-request":
-		p, _ := d.Text(d.Member(0, "principal"))
-		if string(p) == l.principal {
+	case d.Equal(kind, "identity-request"):
+		pt := d.Member(0, "principal")
+		p, _ := d.Text(pt)
+		if d.Equal(pt, l.principal) {
 			return l.sendControl(l.chain.WriteDescriptor(l.writer()))
 		}
 		return l.sendControl(control.WriteMissing(l.writer(), string(p), false))
-	case "":
+	case d.Kind(kind) != cbor.KindText:
 		return control.ErrInvalid // Lite requires a kind.
 	}
 	return nil

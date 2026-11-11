@@ -97,7 +97,7 @@ func WriteGossip(w *cbor.Writer, g *Gossip) ([]byte, error) {
 // ReadGossip decodes a gossip message. It returns ErrUnsupported for a
 // future version, type or operation, which the caller should ignore.
 func ReadGossip(d *cbor.Doc, g *Gossip) error {
-	if Kind(d) != "gossip" {
+	if !d.Equal(d.Member(0, "kind"), "gossip") {
 		return ErrInvalid
 	}
 	m := d.Member(0, "gossip")
@@ -116,13 +116,13 @@ func ReadGossip(d *cbor.Doc, g *Gossip) error {
 	} else if typ != TypeManifest {
 		return ErrUnsupported
 	}
-	op, err := d.Text(d.Member(m, "op"))
-	if err != nil || len(op) == 0 {
+	opTok := d.Member(m, "op")
+	if op, err := d.Text(opTok); err != nil || len(op) == 0 {
 		return ErrInvalid
 	}
 	*g = Gossip{Type: uint8(typ), Op: 255}
 	for i, n := range opNames {
-		if string(op) == n {
+		if d.Equal(opTok, n) {
 			g.Op = Op(i)
 		}
 	}

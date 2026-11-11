@@ -139,7 +139,7 @@ func (d *Doc) value(at *int, depth int) (int, error) {
 					return -1, ErrParse
 				}
 				for old := idx + 1; old < key; old = int(d.tokens[old+1].next) {
-					if string(d.textOf(old)) == string(d.textOf(key)) {
+					if equalBytes(d.textOf(old), d.textOf(key)) {
 						return -1, ErrParse
 					}
 				}
@@ -196,7 +196,7 @@ func (d *Doc) Member(obj int, name string) int {
 	}
 	key := KeyName(name)
 	for i := obj + 1; i < int(t.next); i = int(d.tokens[i+1].next) {
-		if string(d.textOf(i)) == key {
+		if equalText(d.textOf(i), key) {
 			return i + 1
 		}
 	}
@@ -212,7 +212,7 @@ func (d *Doc) Fields(obj int, names ...string) bool {
 	for i := obj + 1; i < int(t.next); i = int(d.tokens[i+1].next) {
 		found := false
 		for _, n := range names {
-			found = found || string(d.textOf(i)) == KeyName(n)
+			found = found || equalText(d.textOf(i), KeyName(n))
 		}
 		if !found {
 			return false
@@ -279,7 +279,7 @@ func (d *Doc) Bytes(i int) ([]byte, error) {
 // Equal reports whether token i is the text s.
 func (d *Doc) Equal(i int, s string) bool {
 	b, err := d.Text(i)
-	return err == nil && string(b) == s
+	return err == nil && equalText(b, s)
 }
 
 // Raw returns the encoded bytes of token i and its subtree.
@@ -323,6 +323,31 @@ func validUTF8(b []byte) bool {
 		}
 		if (count == 2 && c < 0x800) || (count == 3 && c < 0x10000) ||
 			(c >= 0xd800 && c <= 0xdfff) || c > 0x10ffff {
+			return false
+		}
+	}
+	return true
+}
+
+// equalText and equalBytes compare without the string conversion TinyGo allocates for.
+func equalText(b []byte, s string) bool {
+	if len(b) != len(s) {
+		return false
+	}
+	for i := range b {
+		if b[i] != s[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalBytes(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
 			return false
 		}
 	}
