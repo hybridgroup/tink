@@ -31,3 +31,11 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $L:$L -v $PWD:$PWD -w $PWD 
    -DCJSON_ROOT=$B/cJSON -DFETCHCONTENT_SOURCE_DIR_ESP_PQC=$L/build-pki/_deps/esp_pqc-src && cmake --build $B/out -j8 --target router_fixture"
 LITE_ROUTER_FIXTURE=$B/out/router_fixture go test -v -run Session ./internal/liteinterop
 ```
+
+Build target `router_tls_fixture` as well to put Lite's mesh TLS server in front of the router core. `TestTLSLeafSessionAgainstLite` then runs `pkg/tls13` and `pkg/link` together:
+
+```
+LITE_ROUTER_TLS_FIXTURE=$B/out/router_tls_fixture go test -v -run TLSLeaf ./internal/liteinterop
+```
+
+The same binary serves a real leaf on the LAN: `router_tls_fixture tenant router leaf root.der key.der cert.der 43024`.

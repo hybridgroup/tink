@@ -1,12 +1,22 @@
-/* A wendy-lite router core behind a plain TCP socket, for tink's leaf session test.
- * TLS is covered by TestMeshTLSAgainstLite, so this speaks the session in clear.
- * Usage: router_fixture tenant router-uuid leaf-uuid leaf-cert.der root.der
+/* A wendy-lite router core behind a TCP socket, for tink's leaf session tests.
+ *
+ * router_fixture tenant router-uuid leaf-uuid leaf-cert.der root.der
+ *   Plain TCP on loopback. The leaf key comes from leaf-cert.der.
+ * router_tls_fixture tenant router-uuid leaf-uuid root.der key.der cert.der port
+ *   Lite's mesh TLS server on 0.0.0.0:port. The leaf key comes from TLS.
+ *
  * Prints the port, then "route active" once wnr_lookup authorizes the leaf /128,
  * and serves 10 s more. */
 #include "wendy_net_control.h"
 #include "wendy_net_router.h"
 #include "wendy_pki_crypto.h"
 #include "wendy_pki_mesh.h"
+#if ROUTER_TLS
+#include "wendy_cert_bundle.h"
+#include "wendy_pki_internal.h"
+#include "wendy_pki_parsed_identity.h"
+#include <signal.h>
+#endif
 #include <arpa/inet.h>
 #include <poll.h>
 #include <stdio.h>
@@ -34,10 +44,52 @@ static void die(const char *what, int r)
     fprintf(stderr, "router_fixture: %s failed (%d)\n", what, r);
     exit(1);
 }
+#if ROUTER_TLS
+static wendy_pki_connection *tls;
+bool wendy_pki_reset_in_progress(void) { return false; }
+ssize_t wendy_test_send(int s, const void *data, size_t n, int flags) { return send(s, data, n, flags); }
+static ssize_t sock_read(void *ctx, void *data, size_t n) { return recv(*(int *)ctx, data, n, 0); }
+static ssize_t sock_write(void *ctx, const void *data, size_t n) { return send(*(int *)ctx, data, n, 0); }
+static int sock_wait(void *ctx, bool writing, int64_t deadline)
+{
+    struct pollfd p = {.fd = *(int *)ctx, .events = writing ? POLLOUT : POLLIN};
+    int64_t left = deadline - esp_timer_get_time();
+    return left > 0 && poll(&p, 1, (int)(left / 1000) + 1) > 0 ? 0 : -1;
+}
+static ssize_t do_read(void *p, size_t n) { return wendy_pki_read(tls, p, n); }
+static ssize_t do_write(const void *p, size_t n) { return wendy_pki_write(tls, p, n); }
+static bool readable(void)
+{
+    struct pollfd p = {.fd = fd, .events = POLLIN};
+    return mbedtls_ssl_get_bytes_avail(&tls->ssl) || poll(&p, 1, 100) > 0;
+}
+static int read_der(void *context, unsigned index, uint8_t **data, size_t *n)
+{
+    const mbedtls_x509_crt *p = context;
+    while (p && index--)
+        p = p->next;
+    *data = NULL;
+    *n = 0;
+    if (!p || !p->raw.len)
+        return 0;
+    *data = pki_owned_malloc(p->raw.len);
+    memcpy(*data, p->raw.p, p->raw.len);
+    *n = p->raw.len;
+    return 1;
+}
+#else
+static ssize_t do_read(void *p, size_t n) { return read(fd, p, n); }
+static ssize_t do_write(const void *p, size_t n) { return write(fd, p, n); }
+static bool readable(void)
+{
+    struct pollfd p = {.fd = fd, .events = POLLIN};
+    return poll(&p, 1, 100) > 0;
+}
+#endif
 static void full_write(const void *p, size_t n)
 {
     while (n) {
-        ssize_t w = write(fd, p, n);
+        ssize_t w = do_write(p, n);
         if (w <= 0)
             die("write", (int)w);
         p = (const uint8_t *)p + w;
@@ -47,7 +99,7 @@ static void full_write(const void *p, size_t n)
 static void full_read(void *p, size_t n)
 {
     while (n) {
-        ssize_t r = read(fd, p, n);
+        ssize_t r = do_read(p, n);
         if (r <= 0)
             die("read", (int)r);
         p = (uint8_t *)p + r;
@@ -100,15 +152,30 @@ static uint8_t body[65536 + 8], artifact[WG_OBJECT_MAX];
 
 int main(int argc, char **argv)
 {
+#if ROUTER_TLS
+    if (argc != 8)
+        die("usage", argc);
+    signal(SIGPIPE, SIG_IGN);
+    if (mbedtls_platform_set_calloc_free(wendy_net_memory_scoped_calloc, wendy_net_memory_scoped_free))
+        die("calloc", 0);
+#else
     if (argc != 6)
         die("usage", argc);
+#endif
     const char *tenant = argv[1], *self = argv[2], *leaf = argv[3];
     if (wendy_pki_crypto_init())
         die("crypto", 0);
+#if ROUTER_TLS
+    size_t root_n, key_n, own_n;
+    uint8_t *root = load(argv[4], &root_n), *key = load(argv[5], &key_n), *own = load(argv[6], &own_n);
+    struct sockaddr_in a = {.sin_family = AF_INET, .sin_port = htons((uint16_t)atoi(argv[7]))};
+#else
     size_t cert_n, root_n;
     uint8_t *cert = load(argv[4], &cert_n), *root = load(argv[5], &root_n);
-    int listener = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in a = {.sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
+#endif
+    int listener = socket(AF_INET, SOCK_STREAM, 0), yes = 1;
+    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes);
     socklen_t al = sizeof a;
     if (bind(listener, (struct sockaddr *)&a, sizeof a) || listen(listener, 1) ||
         getsockname(listener, (struct sockaddr *)&a, &al))
@@ -118,6 +185,42 @@ int main(int argc, char **argv)
     fd = accept(listener, NULL, NULL);
     if (fd < 0)
         die("accept", fd);
+#if ROUTER_TLS
+    /* Same setup as wendy-lite components/wendy_pki/tests/issuer_interop_success_test.c. */
+    wendy_net_memory_t memory = WENDY_NET_MEMORY_INITIALIZER;
+    if (!wendy_net_memory_open(&memory, 1024 * 1024, true))
+        die("memory", 0);
+    (void)wendy_net_memory_scope_enter(&memory, WENDY_NET_MEMORY_EXTERNAL);
+    size_t der_n = 0;
+    if (wendy_cert_bundle_measure(root, root_n, &der_n))
+        die("roots", 0);
+    uint8_t *trust = calloc(1, der_n + 1);
+    if (wendy_cert_bundle_import(root, root_n, trust, der_n, &der_n))
+        die("roots", 1);
+    static mbedtls_x509_crt source;
+    mbedtls_x509_crt_init(&source);
+    if (pki_parse_certificate_bundle(&source, own, own_n, false))
+        die("certificate", 0);
+    struct pki_tls_owned_identity identity = {.key = key, .key_size = key_n, .trust = trust,
+                                              .trust_capacity = der_n + 1, .verify_at = time(NULL),
+                                              .read_der = read_der, .der_context = &source};
+    struct wendy_pki_stream stream = {.context = &fd, .read = sock_read, .write = sock_write,
+                                      .wait = sock_wait};
+    int t = pki_tls_net_begin(&stream, true, tenant, self, &identity,
+                              (struct wendy_conf_span){trust, der_n}, false, &tls);
+    if (t)
+        die("pki_tls_net_begin", t);
+    for (int steps = 0; (t = pki_tls_net_advance(tls, false, leaf)); steps++) {
+        if (t < 0 && t != -2 && t != -3)
+            die("mesh TLS handshake", t);
+        if (steps > 100000)
+            die("mesh TLS handshake steps", steps);
+        if (t == -2 || t == -3)
+            sock_wait(&fd, t == -3, esp_timer_get_time() + 10000000);
+    }
+    printf("tls ok alpn=%s\n", mbedtls_ssl_get_alpn_protocol(&tls->ssl));
+    fflush(stdout);
+#endif
 
     /* Hello preamble both ways, as peer.c setup_hello does. */
     uint8_t len[4];
@@ -147,9 +250,14 @@ int main(int argc, char **argv)
         die("wnr_start", r);
     /* The leaf key comes from its TLS certificate, install_peer_identity in peer.c. */
     struct wendy_pki_mesh_peer peer;
+#if ROUTER_TLS
+    if ((r = wendy_pki_mesh_authenticated_peer(tls, &peer)))
+        die("wendy_pki_mesh_authenticated_peer", r);
+#else
     const uint8_t *der[1] = {cert};
     if ((r = wendy_pki_mesh_chain(der, &cert_n, 1, root, root_n, tenant, time(NULL), &peer)))
         die("wendy_pki_mesh_chain", r);
+#endif
     if ((r = wnr_identity(&core, &peer, wall_ms(), esp_timer_get_time())))
         die("wnr_identity", r);
     uint64_t link;
@@ -163,8 +271,7 @@ int main(int argc, char **argv)
     bool fetching = false, accepted = false, active = false;
     int64_t deadline = esp_timer_get_time() + INT64_C(45000000);
     while (esp_timer_get_time() < deadline) {
-        struct pollfd p = {.fd = fd, .events = POLLIN};
-        if (poll(&p, 1, 100) > 0) {
+        if (readable()) {
             uint8_t h[5];
             full_read(h, 5);
             uint32_t size = wn_get32(h + 1);
