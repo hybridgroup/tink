@@ -66,7 +66,7 @@ func TestLeafSessionAgainstLite(t *testing.T) {
 	defer conn.Close()
 
 	var cred lx509.Credential
-	if err := cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{ours.der}, Key: ours.pkcs8}); err != nil {
+	if err := cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{ours.der}, Key: ours.pkcs8, Signers: []lx509.KeySigner{new(lx509.P256Signer)}}); err != nil {
 		t.Fatal(err)
 	}
 	tn, _ := addr.ParseUUID(tenant)
@@ -151,7 +151,7 @@ func TestTLSLeafSessionAgainstLite(t *testing.T) {
 	defer raw.Close()
 
 	var cred lx509.Credential
-	cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{ours.der}, Key: ours.pkcs8})
+	cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{ours.der}, Key: ours.pkcs8, Signers: []lx509.KeySigner{new(lx509.P256Signer)}})
 	var v meshid.Verifier
 	v.Configure(meshid.Config{Roots: lx509.Chain{rootDER}, Nanotime: func() int64 { return time.Now().UnixNano() },
 		Tenant: tenant, Device: leaf, Peer: lite})

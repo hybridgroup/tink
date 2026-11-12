@@ -45,6 +45,8 @@ type Config struct {
 type Verifier struct {
 	mu        sync.Mutex
 	chain     lx509.Verifier
+	p256      lx509.P256Verifier
+	algs      [1]lx509.SignatureVerifier
 	self      [principalLen]byte
 	peer      [uuidLen]byte
 	pinned    bool
@@ -66,7 +68,9 @@ func (v *Verifier) Configure(cfg Config) error {
 	if !isUUID(cfg.Tenant) || !isUUID(cfg.Device) || (cfg.Peer != "" && !isUUID(cfg.Peer)) {
 		return ErrTenant
 	}
+	v.algs[0] = &v.p256
 	err := v.chain.Configure(lx509.VerifierConfig{
+		Algorithms:         v.algs[:],
 		Roots:              cfg.Roots,
 		Nanotime:           cfg.Nanotime,
 		MaxChainLen:        8,

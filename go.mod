@@ -12,4 +12,4 @@ require (
 
 require github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 
-replace github.com/soypat/lcrypto => github.com/hybridgroup/lcrypto v0.0.0-20261111160434-8b8b56bd7c08
+replace github.com/soypat/lcrypto => github.com/hybridgroup/lcrypto v0.0.0-20261112171752-ebe9adc4371d

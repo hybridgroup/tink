@@ -15,7 +15,7 @@ You must have the latest development version of TinyGo installed.
 You also must have the needed Wendy device credentials to authenticate to wendy-net.
 
 ```
-tinygo flash -target xiao-esp32c3 -tags lcrypto_nop384,lcrypto_noed25519,lcrypto_norsa -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
+tinygo flash -target xiao-esp32c3 -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
 ```
 
 ## Examples
