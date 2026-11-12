@@ -127,7 +127,7 @@ func TestSignVerify(t *testing.T) {
 	}
 	pkcs8, _ := x509.MarshalPKCS8PrivateKey(key)
 	var cred lx509.Credential
-	if err := cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{der}, Key: pkcs8}); err != nil {
+	if err := cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{der}, Key: pkcs8, Signers: []lx509.KeySigner{new(lx509.P256Signer)}}); err != nil {
 		t.Fatal(err)
 	}
 	b := liteBody(t)

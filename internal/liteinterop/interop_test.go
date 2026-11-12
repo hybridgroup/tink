@@ -136,7 +136,7 @@ func run(t *testing.T, expect string, ok bool) {
 	raw.SetDeadline(time.Now().Add(30 * time.Second))
 
 	var cred lx509.Credential
-	if err := cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{ours.der}, Key: ours.pkcs8}); err != nil {
+	if err := cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{ours.der}, Key: ours.pkcs8, Signers: []lx509.KeySigner{new(lx509.P256Signer)}}); err != nil {
 		t.Fatal(err)
 	}
 	var v meshid.Verifier

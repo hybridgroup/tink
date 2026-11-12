@@ -7,7 +7,7 @@ The display shows the Wi-Fi address, the router address, and the connection stat
 Put the same DER files as wendynet-wifi in `creds/`. They are not committed.
 
 ```
-tinygo flash -target xiao-esp32c3 -tags lcrypto_nop384,lcrypto_noed25519,lcrypto_norsa -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-display
+tinygo flash -target xiao-esp32c3 -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-display
 ```
 
 The display uses the board `SDA_PIN` and `SCL_PIN`.

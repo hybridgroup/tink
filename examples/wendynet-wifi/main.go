@@ -43,6 +43,8 @@ var (
 // Large state lives in package variables to keep it off small task stacks.
 var (
 	cred     lx509.Credential
+	signer   lx509.P256Signer
+	signers  = [...]lx509.KeySigner{&signer}
 	verifier meshid.Verifier
 	conn     tls13.Conn
 )
@@ -65,7 +67,7 @@ func main() {
 	runtime.AdjustTimeOffset(int64(offset))
 	println("time", time.Now().String())
 
-	check("credential", cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{deviceCert}, Key: deviceKey}))
+	check("credential", cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{deviceCert}, Key: deviceKey, Signers: signers[:]}))
 	check("tls config", conn.Configure(tls13.Config{
 		Rand:         rand.Reader,
 		Suites:       []tls13.Suite{tls13.AES128GCMSHA256()},

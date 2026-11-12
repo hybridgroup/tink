@@ -1,7 +1,7 @@
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 h1:El6M4kTTCOh6aBiKaUGG7oYTSPP8MxqL4YI3kZKwcP4=
 github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510/go.mod h1:pupxD2MaaD3pAXIBCelhxNneeOaAeabZDe5s4K6zSpQ=
-github.com/hybridgroup/lcrypto v0.0.0-20261111160434-8b8b56bd7c08 h1:dilofXXefeczhLGiZLEDXVp6J+Kpr183D4PGtcQtX/M=
-github.com/hybridgroup/lcrypto v0.0.0-20261111160434-8b8b56bd7c08/go.mod h1:6PDwW2aJ6WPo3gr7UQEMCoIHiPj92Zn+9beCJL1jn/k=
+github.com/hybridgroup/lcrypto v0.0.0-20261112171752-ebe9adc4371d h1:cvRBHaFwnxsVea6fPNGNLEYrRaILDlY2WP2kCJ7xJII=
+github.com/hybridgroup/lcrypto v0.0.0-20261112171752-ebe9adc4371d/go.mod h1:6PDwW2aJ6WPo3gr7UQEMCoIHiPj92Zn+9beCJL1jn/k=
 github.com/soypat/lneto v0.4.1-0.20261111162121-94d0932e7b53 h1:g+47gTH6v/zh7/sWEXN+HKn4Wa7vQ6Acp7Ih6BN5Ioo=
 github.com/soypat/lneto v0.4.1-0.20261111162121-94d0932e7b53/go.mod h1:Be5PjwoYukvHFiUXxpYi8+ppH2F/gw/vjGBvFdv+Ti8=
 tinygo.org/x/drivers v0.37.0 h1:t2YPSYV+lEXwKYGvszHWmkMLLBp1dhcpfzsrcEwwf9Q=

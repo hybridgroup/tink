@@ -73,14 +73,15 @@ func (p *pki) clientConfig(t *testing.T) Config {
 	t.Helper()
 	var v lx509.Verifier
 	err := v.Configure(lx509.VerifierConfig{
-		Roots:    lx509.Chain{p.rootDER},
-		Nanotime: func() int64 { return time.Now().UnixNano() },
+		Algorithms: []lx509.SignatureVerifier{new(lx509.P256Verifier)},
+		Roots:      lx509.Chain{p.rootDER},
+		Nanotime:   func() int64 { return time.Now().UnixNano() },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var cred lx509.Credential
-	err = cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{p.clientDER}, Key: p.clientKey})
+	err = cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{p.clientDER}, Key: p.clientKey, Signers: []lx509.KeySigner{new(lx509.P256Signer)}})
 	if err != nil {
 		t.Fatal(err)
 	}

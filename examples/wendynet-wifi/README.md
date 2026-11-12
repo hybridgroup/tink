@@ -11,7 +11,7 @@ Put these DER files in `creds/`. They are not committed.
 The router must be enrolled on the P-256 chain, for example an `esp32c6_net` board, since lcrypto cannot verify ML-DSA yet.
 
 ```
-tinygo flash -target xiao-esp32s3 -tags lcrypto_nop384,lcrypto_noed25519,lcrypto_norsa -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
+tinygo flash -target xiao-esp32s3 -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
 ```
 
-The tags drop the RSA, Ed25519 and P-384 code from lcrypto x509, which saves about 24 KB of heap. The mesh only uses P-256.
+The mesh only uses P-256, so the example links only the P-256 verifier and signer from lcrypto x509.
