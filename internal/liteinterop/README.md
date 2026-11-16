@@ -15,7 +15,7 @@ Then run from tink:
 LITE_MESH_TLS_FIXTURE=<wendy-lite>/build-pki/issuer_interop_success_test go test -v ./internal/liteinterop
 ```
 
-`TestMeshTLSAgainstLite` makes the fixture a mesh TLS server with ALPN `wendy-local-mesh-ble/2` and connects with `pkg/tls13` and `pkg/meshid`. Lite must accept the expected device and refuse any other.
+`TestMeshTLSAgainstLite` makes the fixture a mesh TLS server with ALPN `wendy-local-mesh-ble/2` and connects with [`tls13`](https://github.com/hybridgroup/tls13) and `pkg/meshid`. Lite must accept the expected device and refuse any other.
 
 ## Leaf session
 
@@ -32,7 +32,7 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v $L:$L -v $PWD:$PWD -w $PWD 
 LITE_ROUTER_FIXTURE=$B/out/router_fixture go test -v -run Session ./internal/liteinterop
 ```
 
-Build target `router_tls_fixture` as well to put Lite's mesh TLS server in front of the router core. `TestTLSLeafSessionAgainstLite` then runs `pkg/tls13` and `pkg/link` together:
+Build target `router_tls_fixture` as well to put Lite's mesh TLS server in front of the router core. `TestTLSLeafSessionAgainstLite` then runs [`tls13`](https://github.com/hybridgroup/tls13) and `pkg/link` together:
 
 ```
 LITE_ROUTER_TLS_FIXTURE=$B/out/router_tls_fixture go test -v -run TLSLeaf ./internal/liteinterop

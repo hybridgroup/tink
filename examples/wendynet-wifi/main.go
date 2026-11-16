@@ -18,7 +18,7 @@ import (
 	"github.com/hybridgroup/tink/pkg/link"
 	"github.com/hybridgroup/tink/pkg/mdns"
 	"github.com/hybridgroup/tink/pkg/meshid"
-	"github.com/hybridgroup/tink/pkg/tls13"
+	"github.com/hybridgroup/tls13"
 	lx509 "github.com/soypat/lcrypto/x509"
 	"tinygo.org/x/drivers/netdev"
 	nl "tinygo.org/x/drivers/netlink"

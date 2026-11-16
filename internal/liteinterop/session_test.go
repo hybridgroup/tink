@@ -19,7 +19,7 @@ import (
 	"github.com/hybridgroup/tink/pkg/addr"
 	"github.com/hybridgroup/tink/pkg/link"
 	"github.com/hybridgroup/tink/pkg/meshid"
-	"github.com/hybridgroup/tink/pkg/tls13"
+	"github.com/hybridgroup/tls13"
 	lx509 "github.com/soypat/lcrypto/x509"
 )
 
