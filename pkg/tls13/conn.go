@@ -97,6 +97,9 @@ type Conn struct {
 
 	certBuf     []byte
 	chain       peerChain
+	ticketHdr   [tlsraw.SizeHeaderHandshake]byte
+	ticketHdrN  int
+	ticketSkip  int
 	certReq     bool
 	reqCtx      [maxRequestCtx]byte
 	reqCtxLen   int
@@ -172,6 +175,7 @@ func (c *Conn) Open(rw io.ReadWriter) error {
 	c.state = stateHandshake
 	c.peerClosed = false
 	c.hsOff, c.hsEnd = 0, 0
+	c.ticketHdrN, c.ticketSkip = 0, 0
 	c.certReq, c.reqCtxLen, c.nPeerScheme, c.alpnLen = false, 0, 0, 0
 	c.chain = peerChain{}
 	c.vld.ResetErr()
@@ -191,7 +195,15 @@ func (c *Conn) Handshake() error {
 		return c.fail(err)
 	}
 	c.state = stateConnected
-	// The peer chain is only needed by Verifier, so give its buffer back for the session.
+	// Only tickets follow, and skipTickets reads them without hbuf, so give both buffers back.
+	pending := c.hbuf[c.hsOff:c.hsEnd]
+	if len(pending) > 0 {
+		if err := c.skipTickets(pending); err != nil {
+			return c.fail(err)
+		}
+	}
+	clear(c.hbuf)
+	c.hbuf, c.hsOff, c.hsEnd = nil, 0, 0
 	c.certBuf, c.chain = nil, peerChain{}
 	return nil
 }
@@ -858,21 +870,36 @@ func (c *Conn) readApp() error {
 	case tlsraw.ContentTypeAlert:
 		return c.handleAlert(content)
 	case tlsraw.ContentTypeHandshake:
-		if err := c.pushHandshake(content); err != nil {
-			return err
+		if len(content) == 0 {
+			return alertError(tlsraw.AlertUnexpectedMessage)
 		}
-		for {
-			msg, err := c.nextHandshake()
-			if err != nil || msg == nil {
-				return err
-			}
-			// Tickets are dropped since PSK is not supported. KeyUpdate is not supported yet.
-			if tlsraw.HandshakeType(msg[0]) != tlsraw.HandshakeTypeNewSessionTicket {
-				return alertError(tlsraw.AlertUnexpectedMessage)
-			}
-		}
+		return c.skipTickets(content)
 	}
 	return alertError(tlsraw.AlertUnexpectedMessage)
+}
+
+// skipTickets drops NewSessionTicket messages as they arrive, split across records or not.
+// PSK is not supported and KeyUpdate is not supported yet, so anything else is an error.
+func (c *Conn) skipTickets(content []byte) error {
+	for len(content) > 0 {
+		if c.ticketSkip > 0 {
+			n := min(c.ticketSkip, len(content))
+			c.ticketSkip -= n
+			content = content[n:]
+			continue
+		}
+		n := copy(c.ticketHdr[c.ticketHdrN:], content)
+		c.ticketHdrN += n
+		content = content[n:]
+		if c.ticketHdrN < len(c.ticketHdr) {
+			return nil
+		}
+		if tlsraw.HandshakeType(c.ticketHdr[0]) != tlsraw.HandshakeTypeNewSessionTicket {
+			return alertError(tlsraw.AlertUnexpectedMessage)
+		}
+		c.ticketHdrN, c.ticketSkip = 0, int(uint24(c.ticketHdr[1:]))
+	}
+	return nil
 }
 
 // readRecord reads one record and returns its content type and content, decrypted

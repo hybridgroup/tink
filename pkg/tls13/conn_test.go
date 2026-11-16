@@ -182,6 +182,9 @@ func TestHandshakeMutual(t *testing.T) {
 			if c.ALPN() != "wendy-local-mesh-ble/2" {
 				t.Fatalf("ALPN %q", c.ALPN())
 			}
+			if c.hbuf != nil || c.certBuf != nil {
+				t.Fatal("handshake buffers kept after the handshake")
+			}
 			msg := make([]byte, 20000) // Spans more than one record each way.
 			rand.Read(msg)
 			// Write while reading the echo so neither side fills its socket buffer.
@@ -312,5 +315,33 @@ func TestPeerChain(t *testing.T) {
 	}
 	if _, err := p.CertView(1); err == nil {
 		t.Fatal("cert view out of range")
+	}
+}
+
+func TestSkipTickets(t *testing.T) {
+	ticket := func(body int) []byte {
+		m := []byte{byte(tlsraw.HandshakeTypeNewSessionTicket), byte(body >> 16), byte(body >> 8), byte(body)}
+		return append(m, make([]byte, body)...)
+	}
+	stream := append(ticket(200), ticket(5000)...)
+	stream = append(stream, ticket(0)...)
+	for _, size := range []int{1, 3, 4, 7, 200, 4096, len(stream)} {
+		var c Conn
+		for rest := stream; len(rest) > 0; {
+			n := min(size, len(rest))
+			if err := c.skipTickets(rest[:n]); err != nil {
+				t.Fatalf("records of %d bytes: %v", size, err)
+			}
+			rest = rest[n:]
+		}
+		if c.ticketHdrN != 0 || c.ticketSkip != 0 {
+			t.Fatalf("records of %d bytes: stopped inside a message", size)
+		}
+	}
+
+	var c Conn
+	keyUpdate := []byte{byte(tlsraw.HandshakeTypeKeyUpdate), 0, 0, 1, 0}
+	if err := c.skipTickets(append(ticket(10), keyUpdate...)); err != alertError(tlsraw.AlertUnexpectedMessage) {
+		t.Fatalf("KeyUpdate after a ticket: got %v, want unexpected_message", err)
 	}
 }
