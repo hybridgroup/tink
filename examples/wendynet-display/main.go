@@ -47,7 +47,6 @@ var (
 	signer   lx509.P256Signer
 	signers  = [...]lx509.KeySigner{&signer}
 	verifier meshid.Verifier
-	conn     tls13.Conn
 )
 
 func main() {
@@ -61,7 +60,17 @@ func main() {
 
 	// The 1 KiB TCP window keeps at most 2 router segments in flight, so 4 ring slots suffice.
 	// The leaf sends at most a control frame of about 1.1 KiB, so a 2 KiB send buffer suffices.
-	wifi := esplink.Esplink{RxRingSize: 4, TCP: esplink.TCPConfig{TxBufSize: 2048}}
+	wifi := esplink.Esplink{RxRingSize: 4, TCP: esplink.TCPConfig{TxBufSize: 2048}, TLSHandshakeTimeout: 30 * time.Second}
+	check("credential", cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{deviceCert}, Key: deviceKey, Signers: signers[:]}))
+	esplink.UseTLS(&wifi, &tls13.Config{
+		Rand:         rand.Reader,
+		Suites:       []tls13.Suite{tls13.AES128GCMSHA256()},
+		KeyExchanges: []tls13.KeyExchange{tls13.X25519(), tls13.P256()},
+		Credential:   &cred,
+		Verifier:     &verifier,
+		ALPN:         "wendy-local-mesh-ble/2",
+		MaxRecord:    4096,
+	})
 	netdev.UseNetdev(&wifi)
 	state("wifi " + ssid)
 	check("wifi", wifi.NetConnect(&nl.ConnectParams{Ssid: ssid, Passphrase: password}))
@@ -73,17 +82,6 @@ func main() {
 	check("ntp", err)
 	runtime.AdjustTimeOffset(int64(offset))
 	println("time", time.Now().String())
-
-	check("credential", cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{deviceCert}, Key: deviceKey, Signers: signers[:]}))
-	check("tls config", conn.Configure(tls13.Config{
-		Rand:         rand.Reader,
-		Suites:       []tls13.Suite{tls13.AES128GCMSHA256()},
-		KeyExchanges: []tls13.KeyExchange{tls13.X25519(), tls13.P256()},
-		Credential:   &cred,
-		Verifier:     &verifier,
-		ALPN:         "wendy-local-mesh-ble/2",
-		MaxRecord:    4096,
-	}))
 
 	for {
 		err := session(tenant, self)
@@ -117,21 +115,12 @@ func session(tenant, self addr.UUID) error {
 	if err != nil {
 		return err
 	}
-	tcp, err := net.Dial("tcp", target)
+	state("tls")
+	conn, err := net.DialTLS(target)
 	if err != nil {
 		return err
 	}
-	defer tcp.Close()
-	if err := conn.Open(tcp); err != nil {
-		return err
-	}
-	state("tls")
-	// A peer that stalls the handshake must not hang the leaf.
-	tcp.SetDeadline(time.Now().Add(30 * time.Second))
-	if err := conn.Handshake(); err != nil {
-		return err
-	}
-	tcp.SetDeadline(time.Time{})
+	defer conn.Close()
 	router, err := addr.ParseUUID(verifier.Device())
 	if err != nil {
 		return err
@@ -148,7 +137,7 @@ func session(tenant, self addr.UUID) error {
 		return err
 	}
 	state("linked " + time.Now().Format("15:04:05") + " UTC")
-	return l.Run(&conn, nil)
+	return l.Run(conn, nil)
 }
 
 var mdnsBuf [1500]byte
