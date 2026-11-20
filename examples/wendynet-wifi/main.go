@@ -18,10 +18,14 @@ import (
 	"github.com/hybridgroup/tink/pkg/link"
 	"github.com/hybridgroup/tink/pkg/mdns"
 	"github.com/hybridgroup/tink/pkg/meshid"
-	"github.com/hybridgroup/tls13"
+	"github.com/soypat/lcrypto"
+	"github.com/soypat/lcrypto/p256"
+	"github.com/soypat/lcrypto/x25519"
 	lx509 "github.com/soypat/lcrypto/x509"
+	"github.com/soypat/lneto/crypto/tlsauto"
 	"tinygo.org/x/drivers/netdev"
 	nl "tinygo.org/x/drivers/netlink"
+	"tinygo.org/x/espradio/hwcrypto"
 	esplink "tinygo.org/x/espradio/netlink"
 )
 
@@ -60,14 +64,19 @@ func main() {
 	// The leaf sends at most a control frame of about 1.1 KiB, so a 2 KiB send buffer suffices.
 	wifi := esplink.Esplink{RxRingSize: 4, TCP: esplink.TCPConfig{TxBufSize: 2048}, TLSHandshakeTimeout: 30 * time.Second}
 	check("credential", cred.Configure(lx509.CredentialConfig{Chain: lx509.Chain{deviceCert}, Key: deviceKey, Signers: signers[:]}))
-	esplink.UseTLS(&wifi, &tls13.Config{
-		Rand:         rand.Reader,
-		Suites:       []tls13.Suite{tls13.AES128GCMSHA256()},
-		KeyExchanges: []tls13.KeyExchange{tls13.X25519(), tls13.P256()},
-		Credential:   &cred,
-		Verifier:     &verifier,
-		ALPN:         "wendy-local-mesh-ble/2",
-		MaxRecord:    4096,
+	esplink.UseTLS(&wifi, &tlsauto.Config{
+		Rand:   rand.Reader,
+		Suites: []tlsauto.Suite{hwcrypto.TLSAES128GCMSHA256()},
+		KeyExchanges: []tlsauto.KeyExchange{
+			{ID: x25519.GroupID, ClientShareLen: x25519.ShareSize, ServerShareLen: x25519.ShareSize, SharedLen: x25519.SharedSize,
+				NewExchanger: func() tlsauto.Exchanger { return new(x25519.Exchanger) }},
+			{ID: p256.GroupID, ClientShareLen: p256.ShareSize, ServerShareLen: p256.ShareSize, SharedLen: p256.SharedSize,
+				NewExchanger: func() tlsauto.Exchanger { return new(p256.Exchanger) }},
+		},
+		Credential: &cred,
+		Verifier:   peerVerifier{&verifier},
+		ALPN:       "wendy-local-mesh-ble/2",
+		MaxRecord:  4096,
 	})
 	netdev.UseNetdev(&wifi)
 	check("wifi", wifi.NetConnect(&nl.ConnectParams{Ssid: ssid, Passphrase: password}))
@@ -161,6 +170,13 @@ func discover(tenant, self addr.UUID) (mdns.Candidate, error) {
 }
 
 var errNoRouter = errors.New("no router found with mDNS")
+
+// peerVerifier passes the tlsauto chain to meshid, which takes the lcrypto CertChain type.
+type peerVerifier struct{ *meshid.Verifier }
+
+func (v peerVerifier) VerifyPeer(c tlsauto.CertChain, scheme uint16, peerIsServer bool, name, msg, sig []byte) error {
+	return v.Verifier.VerifyPeer(lcrypto.CertChain(c), scheme, peerIsServer, name, msg, sig)
+}
 
 func check(what string, err error) {
 	for err != nil {
