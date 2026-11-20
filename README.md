@@ -6,7 +6,12 @@
 
 Go and TinyGo packages for tiny devices to join [wendy-net](https://docs.wendy.dev/latest/guides/wendy-net/) wireless mesh networks based on the [Wendy](https://wendy.dev/) platform for robotics and physical AI.
 
-Runs on boards with Espressif `esp32c3` and `esp32s3` processors.
+Runs on boards with Espressif `esp32`, `esp32c3`, `esp32c6` and `esp32s3` processors. Tested with these TinyGo targets.
+
+- `esp32-coreboard-v2`
+- `xiao-esp32c3`
+- `xiao-esp32c6`
+- `xiao-esp32s3`
 
 ## Quick Start
 
@@ -81,5 +86,7 @@ The arguments are the tenant, router and board IDs from the certificates. Change
 ```
 tinygo flash -target xiao-esp32c3 -ldflags="-X main.ssid=SSID -X main.password=PASS -X main.peer=HOST_IP" -monitor ./examples/wendynet-wifi
 ```
+
+Use the `-target` for your board. The host router serves one board per run, so restart it before switching boards and unplug the others, since they share the same credentials.
 
 The router prints `tls ok`, then `route active`, then a status line every 30 s. It ends with `soak done` and exits nonzero if the route was lost. Open TCP port 43024 if your firewall blocks it.

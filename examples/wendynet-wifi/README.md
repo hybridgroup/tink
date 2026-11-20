@@ -14,4 +14,6 @@ The router must be enrolled on the P-256 chain, for example an `esp32c6_net` boa
 tinygo flash -target xiao-esp32s3 -ldflags="-X main.ssid=SSID -X main.password=PASS" -monitor ./examples/wendynet-wifi
 ```
 
+Tested on `esp32-coreboard-v2`, `xiao-esp32c3`, `xiao-esp32c6` and `xiao-esp32s3`.
+
 The mesh only uses P-256, so the example links only the P-256 verifier and signer from lcrypto x509.
