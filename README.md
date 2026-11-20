@@ -51,3 +51,35 @@ tinygo test ./pkg/...
 ## Testing against wendy-lite
 
 `internal/liteinterop` runs tink against wendy-lite's C code built for the host. See its README.md.
+
+## Host router for board testing
+
+A board running `examples/wendynet-wifi` can join a Lite router running on your computer.
+
+1. Build `router_tls_fixture` as described in `internal/liteinterop/README.md`.
+2. Create a test tenant root with router and board credentials. They are valid for 30 days.
+
+```
+go run ./internal/liteinterop/testcreds internal/liteinterop/router/build/hw examples/wendynet-wifi/creds
+```
+
+   This writes `root.der`, `router-cert.der` and `router-key.der` for the router, and `tenant-root.der`, `device-cert.der` and `device-key.der` for the board. It refuses to overwrite existing files, so move any real board credentials out of `creds/` first.
+
+3. Start the router on port 43024.
+
+```
+cd internal/liteinterop/router/build
+ROUTER_SOAK_SECONDS=1800 ./out/router_tls_fixture 2558fd76-afc7-466e-9613-6b715296a526 \
+  00000000-0000-4000-8000-000000000004 00000000-0000-4000-8000-000000000005 \
+  hw/root.der hw/router-key.der hw/router-cert.der 43024
+```
+
+The arguments are the tenant, router and board IDs from the certificates. Change them if your credentials use other IDs.
+
+4. Flash the board with your computer's IP address. The host router does not answer mDNS.
+
+```
+tinygo flash -target xiao-esp32c3 -ldflags="-X main.ssid=SSID -X main.password=PASS -X main.peer=HOST_IP" -monitor ./examples/wendynet-wifi
+```
+
+The router prints `tls ok`, then `route active`, then a status line every 30 s. It ends with `soak done` and exits nonzero if the route was lost. Open TCP port 43024 if your firewall blocks it.
