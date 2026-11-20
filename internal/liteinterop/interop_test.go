@@ -22,8 +22,8 @@ import (
 	"time"
 
 	"github.com/hybridgroup/tink/pkg/meshid"
-	"github.com/hybridgroup/tls13"
 	lx509 "github.com/soypat/lcrypto/x509"
+	"github.com/soypat/lneto/crypto/tlsauto"
 )
 
 const (
@@ -147,12 +147,8 @@ func run(t *testing.T, expect string, ok bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var c tls13.Conn
-	err = c.Configure(tls13.Config{
-		Rand: rand.Reader, Suites: []tls13.Suite{tls13.AES128GCMSHA256()},
-		KeyExchanges: []tls13.KeyExchange{tls13.X25519(), tls13.P256()},
-		Credential:   &cred, Verifier: &v, ALPN: "wendy-local-mesh-ble/2",
-	})
+	var c tlsauto.Conn
+	err = c.Configure(tlsConfig(&cred, &v, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

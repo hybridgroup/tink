@@ -19,8 +19,8 @@ import (
 	"github.com/hybridgroup/tink/pkg/addr"
 	"github.com/hybridgroup/tink/pkg/link"
 	"github.com/hybridgroup/tink/pkg/meshid"
-	"github.com/hybridgroup/tls13"
 	lx509 "github.com/soypat/lcrypto/x509"
+	"github.com/soypat/lneto/crypto/tlsauto"
 )
 
 // TestLeafSessionAgainstLite runs pkg/link against Lite's router core.
@@ -109,7 +109,7 @@ func TestLeafSessionAgainstLite(t *testing.T) {
 	}
 }
 
-// TestTLSLeafSessionAgainstLite runs tls13 and the leaf session together
+// TestTLSLeafSessionAgainstLite runs tlsauto and the leaf session together
 // against Lite's mesh TLS server and router core in router_tls_fixture.
 func TestTLSLeafSessionAgainstLite(t *testing.T) {
 	fixture := os.Getenv("LITE_ROUTER_TLS_FIXTURE")
@@ -155,10 +155,8 @@ func TestTLSLeafSessionAgainstLite(t *testing.T) {
 	var v meshid.Verifier
 	v.Configure(meshid.Config{Roots: lx509.Chain{rootDER}, Nanotime: func() int64 { return time.Now().UnixNano() },
 		Tenant: tenant, Device: leaf, Peer: lite})
-	var c tls13.Conn
-	c.Configure(tls13.Config{Rand: rand.Reader, Suites: []tls13.Suite{tls13.AES128GCMSHA256()},
-		KeyExchanges: []tls13.KeyExchange{tls13.X25519(), tls13.P256()},
-		Credential:   &cred, Verifier: &v, ALPN: "wendy-local-mesh-ble/2", MaxRecord: 4096})
+	var c tlsauto.Conn
+	c.Configure(tlsConfig(&cred, &v, 4096))
 	c.Open(raw)
 	if err := c.Handshake(); err != nil {
 		t.Fatalf("handshake: %v\n%s", err, stderr.String())
